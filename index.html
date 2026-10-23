@@ -378,17 +378,19 @@ const MMR=0.005, FEE=0.00055;
 function tradePlan(a,dir,sym){
   const c=a.candles,L=c.length,long=dir==="long";
   const want=long?"B":"S",sig=a.sigs.filter(s=>s.type===want).pop();
-  const fresh=sig&&L-1-sig.i<=3;
+  const recent=sig&&L-1-sig.i<=3,away=sig?Math.abs(a.last-sig.price):0,atrNow=atrAt(c,L-1);
+  const fresh=recent&&away<=0.5*atrNow;
   const entry=fresh?sig.price:a.last,p=params(sym),o=optStore[sym+"|"+tf];
-  const lv=levelsAt(c,fresh?sig.i:L-1,long,entry,p),{d,sl,tp1,clamp,atr}=lv,tp2=lv.tp2;
+  const lv=levelsAt(c,fresh?sig.i:L-1,long,entry,p),{d,sl,tp1,clamp,atr,wild}=lv,tp2=lv.tp2;
   const lev=Math.max(1,cfg.lev);
   const liq=long?entry*(1-1/lev+MMR):entry*(1+1/lev-MMR);
   const dPct=d/entry,maxLev=Math.max(1,Math.floor(1/(dPct+MMR+0.003)));
-  const liqFirst=long?liq>=sl:liq<=sl;
+  const liqFirst=long?liq>=sl:liq<=sl,liqSig=recent?(long?sig.price*(1-1/lev+MMR):sig.price*(1+1/lev-MMR)):null,liqNow=liqSig!=null&&(long?a.last<=liqSig:a.last>=liqSig);
+  const adverse=sig?(long?sig.price-a.last:a.last-sig.price)/sig.price*100:0;
   const riskAmt=cfg.seed*cfg.risk/100,qty=riskAmt/d,notional=qty*entry,margin=notional/lev,fees=notional*FEE*2;
   const swingHi=Math.max(...c.slice(-50).map(x=>x.high)),swingLo=Math.min(...c.slice(-50).map(x=>x.low));
   const wall=long?(swingHi>entry&&swingHi<tp1?swingHi:null):(swingLo<entry&&swingLo>tp1?swingLo:null);const tpEnd=tp2!=null?tp2:tp1;
-  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wall,moved:sig?(a.last-sig.price)/sig.price*100:0};
+  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,wall,recent,adverse,liqNow,liqSig,moved:sig?(a.last-sig.price)/sig.price*100:0};
 }
 function pctTxt(v){return (v>=0?"+":"−")+Math.abs(v).toFixed(2)+"%"}
 function qtyTxt(q){return q>=100?Math.round(q).toLocaleString("en-US"):q>=1?q.toFixed(2):q.toPrecision(3)}
@@ -407,10 +409,10 @@ function wyHTML(a){
 function planHTML(a,sym){
   const def=a.sigs.length?(a.sigs[a.sigs.length-1].type==="B"?"long":"short"):(a.total<0?"short":"long");
   const dir=dirPick[sym]||def,P=tradePlan(a,dir,sym),L=P.long;
-  const roe=v=>pctTxt(v*P.lev);
+  const roe=v=>pctTxt(v*P.lev*(L?1:-1));
   const pE=v=>(v-P.entry)/P.entry*100;
   const against=(L&&a.sigs.zone<0)||(!L&&a.sigs.zone>0)||(a.sigs.zone===0);
-  const entryNote=P.fresh?`${fmtTime(P.sig.t)} ${L?"B":"S"} 신호 캔들 종가`:(P.sig?`마지막 ${L?"B":"S"} 신호(${fmtTime(P.sig.t)}, ${fmt(P.sig.price)}) 이후 ${pctTxt(P.moved)} 움직여서 현재가 기준`:"현재가 기준");
+  const entryNote=P.fresh?`${fmtTime(P.sig.t)} ${L?"B":"S"} 신호 캔들 종가 · 지금 가격도 근처라 이 가격대 진입 가능`:(P.sig?`현재가 기준 · ${L?"B":"S"} 신호가 ${fmt(P.sig.price)}(${fmtTime(P.sig.t)})에서 이미 ${pctTxt(P.moved)} 움직였어요`:"현재가 기준");
   return `<div class="plan">
     <div class="planhead"><h3 class="h3">선물 진입 계획</h3>
       <div class="seg sm" role="group" aria-label="포지션 방향"><button data-dir="long" data-sym="${sym}" aria-pressed="${L}">롱</button><button data-dir="short" data-sym="${sym}" aria-pressed="${!L}">숏</button></div></div>
@@ -424,9 +426,12 @@ function planHTML(a,sym){
         :`<div class="lvr tp"><span class="k">나머지</span><span class="v">트레일링</span><span class="n">목표가 1 이후 최고${L?"":"(최저)"}가에서 ATR ${P.trail}배(약 ${fmt(P.trail*P.atr)}) 떨어지면 정리. 추세가 길게 갈 때 수익을 더 끌고 가요.</span></div>`}
       <div class="lvr lq"><span class="k">청산가</span><span class="v">${fmt(P.liq)}</span><span class="n">${P.lev}배 격리 기준 약 ${pctTxt(pE(P.liq))}</span></div>
     </div>
+    ${P.recent&&!P.fresh&&P.adverse>0?`<div class="warn">신호가(${fmt(P.sig.price)})에서 ${L?"롱":"숏"} 반대 방향으로 ${P.adverse.toFixed(2)}% 움직였어요. 신호 자리를 놓친 상태라, 지금 진입하면 불리한 가격이에요. 다음 신호를 기다리는 걸 권해요.</div>`:""}
+    ${P.liqNow?`<div class="warn"><b>신호가(${fmt(P.sig.price)})에 ${P.lev}배로 들어갔다면 청산가는 ${fmt(P.liqSig)}인데, 지금 가격(${fmt(a.last)})이 이미 그걸 넘었어요.</b> 이 레버리지는 이 코인 변동에 비해 너무 높아요.</div>`:""}
+    ${P.wild?`<div class="warn">이 코인은 ${tfShort(tf)} 변동이 너무 커서, 정상적인 손절폭이 ${MAXSL[tf]}%를 넘어요. 손절을 ${MAXSL[tf]}%로 제한했지만 흔들려서 털릴 가능성이 높아요. 진입하지 않거나 더 긴 봉으로 보는 걸 권해요.</div>`:""}
     ${P.liqFirst?`<div class="warn">청산가가 손절가보다 먼저 와요. 손절이 걸리기 전에 청산돼요. 레버리지를 <b>${P.maxLev}배 이하</b>로 낮추세요.</div>`
       :`<div class="okline">손절가가 청산가보다 먼저 와요. 이 손절폭이면 최대 <b>${P.maxLev}배</b>까지 안전해요.</div>`}
-    ${P.wall?`<div class="warn soft">목표가 1 전에 최근 ${L?"고점":"저점"} ${fmt(P.wall)}이 있어서 저항${L?"":"(지지)"}을 받을 수 있어요.</div>`:""}
+    ${P.wall?`<div class="warn soft">목표가 1 전에 최근 ${L?"고점":"저점"} ${fmt(P.wall)}이 있어서 ${L?"저항을":"지지를"} 받을 수 있어요.</div>`:""}
     <div class="sizing">
       <div><span class="k">수량</span><span class="v">${qtyTxt(P.qty)} ${sym}</span></div>
       <div><span class="k">포지션 규모</span><span class="v">${fmt(P.notional)} USDT</span></div>
@@ -687,6 +692,7 @@ function regimeSeries(c){
   return {adx,ci};
 }
 function isChop(S,i){const a=S.adx[i],c=S.ci[i];if(a==null||c==null)return false;return a<18||c>61.8}
+const MAXSL={"15m":2.5,"4h":6,"1D":15};
 const CONFIRM={"15m":2,"4h":1,"1D":1};
 function dayPatsFor(pats){return tf==="15m"?pats.filter(p=>Math.abs(p.sc)>=2):pats}
 function indicatorsAt(S,i){
@@ -1060,8 +1066,10 @@ function levelsAt(c,i,long,entry,p){
   if(long?sl>=entry:sl<=entry)d=0;
   if(d<p.sl[0]*atr){d=p.sl[0]*atr;clamp=`최근 ${long?"저점":"고점"}이 너무 가까워서 ATR ${p.sl[0]}배로 넓혔어요`}
   else if(d>p.sl[1]*atr){d=p.sl[1]*atr;clamp=`최근 ${long?"저점":"고점"}이 너무 멀어서 ATR ${p.sl[1]}배로 줄였어요`}
+  const cap=entry*MAXSL[tf]/100,wild=p.sl[0]*atr>cap;
+  if(d>cap){d=cap;clamp=`손절폭이 ${tfShort(tf)} 기준으로 너무 커서 ${MAXSL[tf]}%로 제한했어요`}
   const sg=long?1:-1;
-  return {d,atr,clamp,sl:entry-sg*d,tp1:entry+sg*p.r1*d,tp2:p.trail?null:entry+sg*p.r2*d,r1:p.r1,r2:p.r2,trail:p.trail};
+  return {d,atr,clamp,wild,sl:entry-sg*d,tp1:entry+sg*p.r1*d,tp2:p.trail?null:entry+sg*p.r2*d,r1:p.r1,r2:p.r2,trail:p.trail};
 }
 /* Walk candles after entry: stop first if a candle touches both (conservative); half off at TP1 then stop to entry; rest at TP2. */
 function walkTrade(c,from,pos,stopAt){
