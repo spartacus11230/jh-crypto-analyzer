@@ -240,6 +240,7 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid
 .mobbody .ds{font-size:.75rem;color:var(--muted)}
 .wall{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:8px;font-size:.82rem}
 .wall.muted{color:var(--muted)}
+.slmode{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.82rem;font-weight:600;color:var(--muted)}
 .plan{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
 .planhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .seg.sm button{padding:4px 14px;font-size:.8rem}
@@ -361,7 +362,9 @@ let tf=store.get("bb.tf","4h");if(!["15m","4h","1D"].includes(tf))tf="4h";
 let open=null;
 const state={}; // sym -> {main:{c,at,err}, day:{c,at,err}}
 let tickers={}, timer=null, busy=false, pendingRender=false;
-const cfg=Object.assign({lev:10,seed:1000,risk:2,mtf:true,dayLimit:6},store.get("bb.cfg",{}));
+const cfg=Object.assign({lev:10,seed:1000,risk:2,mtf:true,dayLimit:6,slMode:"margin",marginAmt:100,maxLoss:30},store.get("bb.cfg",{}));
+if(!cfg.slMode)cfg.slMode="margin";
+function riskUSD(){return cfg.slMode==="margin"?cfg.marginAmt*cfg.maxLoss/100:cfg.seed*cfg.risk/100}
 let journal=store.get("bb.journal",[]);
 let cat=store.get("bb.cat","chart"),wTab=store.get("bb.wtab","pump"),wScope=store.get("bb.wscope","mine"),wOpen=null,topOff=false;
 const whale={};let mobKey=store.get("bb.mobula",""),mobState={ok:null,msg:""},showMob=false;let wScan={busy:false,done:0,total:0,at:0,scope:null,err:null};
@@ -369,7 +372,7 @@ const whale={};let mobKey=store.get("bb.mobula",""),mobState={ok:null,msg:""},sh
    the rest at r2 × stop distance, or trailed trail × ATR behind the best price when trail > 0. */
 const DEF_P={"15m":{sl:[1,2],r1:1.5,r2:2.5,trail:0},"4h":{sl:[1,3],r1:1.5,r2:3,trail:0},"1D":{sl:[1.5,3],r1:2,r2:4,trail:0}};
 let optStore=store.get("bb.opt",{});
-function params(sym){const o=optStore[sym+"|"+tf];return o&&o.adopted?o.p:DEF_P[tf]}
+function params(sym){const o=optStore[sym+"|"+tf];return cfg.slMode!=="margin"&&o&&o.adopted?o.p:DEF_P[tf]}
 function pDesc(p){return `손절 ATR ${p.sl[0]}~${p.sl[1]}배 · 목표1 ${p.r1}R(절반) · 나머지 ${p.trail?`트레일링 ATR ${p.trail}배`:p.r2+"R"}`}let showJournal=false;const bt={},fut={};let delArm=null;
 const dirPick={},entryOv={},selCandle={};
 const MMR=0.005, FEE=0.00055;
@@ -381,16 +384,16 @@ function tradePlan(a,dir,sym){
   const recent=sig&&L-1-sig.i<=3,away=sig?Math.abs(a.last-sig.price):0,atrNow=atrAt(c,L-1);
   const fresh=recent&&away<=0.5*atrNow;
   const entry=fresh?sig.price:a.last,p=params(sym),o=optStore[sym+"|"+tf];
-  const lv=levelsAt(c,fresh?sig.i:L-1,long,entry,p),{d,sl,tp1,clamp,atr,wild}=lv,tp2=lv.tp2;
+  const lv=levelsAt(c,fresh?sig.i:L-1,long,entry,p),{d,sl,tp1,clamp,atr,wild,tight}=lv,tp2=lv.tp2;
   const lev=Math.max(1,cfg.lev);
   const liq=long?entry*(1-1/lev+MMR):entry*(1+1/lev-MMR);
   const dPct=d/entry,maxLev=Math.max(1,Math.floor(1/(dPct+MMR+0.003)));
   const liqFirst=long?liq>=sl:liq<=sl,liqSig=recent?(long?sig.price*(1-1/lev+MMR):sig.price*(1+1/lev-MMR)):null,liqNow=liqSig!=null&&(long?a.last<=liqSig:a.last>=liqSig);
   const adverse=sig?(long?sig.price-a.last:a.last-sig.price)/sig.price*100:0;
-  const riskAmt=cfg.seed*cfg.risk/100,qty=riskAmt/d,notional=qty*entry,margin=notional/lev,fees=notional*FEE*2;
+  const mm=cfg.slMode==="margin",riskAmt=riskUSD(),qty=mm?cfg.marginAmt*lev/entry:riskAmt/d,notional=qty*entry,margin=notional/lev,fees=notional*FEE*2;
   const swingHi=Math.max(...c.slice(-50).map(x=>x.high)),swingLo=Math.min(...c.slice(-50).map(x=>x.low));
   const wall=long?(swingHi>entry&&swingHi<tp1?swingHi:null):(swingLo<entry&&swingLo>tp1?swingLo:null);const tpEnd=tp2!=null?tp2:tp1;
-  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,wall,recent,adverse,liqNow,liqSig,moved:sig?(a.last-sig.price)/sig.price*100:0};
+  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,moved:sig?(a.last-sig.price)/sig.price*100:0};
 }
 function pctTxt(v){return (v>=0?"+":"−")+Math.abs(v).toFixed(2)+"%"}
 function qtyTxt(q){return q>=100?Math.round(q).toLocaleString("en-US"):q>=1?q.toFixed(2):q.toPrecision(3)}
@@ -417,7 +420,7 @@ function planHTML(a,sym){
     <div class="planhead"><h3 class="h3">선물 진입 계획</h3>
       <div class="seg sm" role="group" aria-label="포지션 방향"><button data-dir="long" data-sym="${sym}" aria-pressed="${L}">롱</button><button data-dir="short" data-sym="${sym}" aria-pressed="${!L}">숏</button></div></div>
     ${against?`<div class="warn soft">${a.sigs.zone===0?"지금은 관망 구간이에요. 신호가 뜨기 전 미리 보는 계획이에요.":"지금 신호 방향과 반대인 계획이에요."}</div>`:""}
-    <div class="pbasis ${P.opt?"on":""}">${P.opt?`<b>최적화 값 적용 중</b> · 검증 구간 ${P.opt.test.n}회, 승률 ${P.opt.test.wr.toFixed(0)}%, 평균 ${fmtR(P.opt.test.avgR)}`:`<b>${tfShort(tf)} 기본값</b> · 백테스트를 돌리면 이 코인에 맞게 최적화해요`}<br><span>${pDesc(P.p)}</span></div>
+    <div class="pbasis ${P.opt&&cfg.slMode!=="margin"?"on":""}">${cfg.slMode==="margin"?`<b>증거금 % 손절</b> · ${cfg.lev}배, 증거금의 ${cfg.maxLoss}%에서 손절`:P.opt?`<b>최적화 값 적용 중</b> · 검증 구간 ${P.opt.test.n}회, 승률 ${P.opt.test.wr.toFixed(0)}%, 평균 ${fmtR(P.opt.test.avgR)}`:`<b>${tfShort(tf)} 기본값</b> · 백테스트를 돌리면 이 코인에 맞게 최적화해요`}<br><span>${cfg.slMode==="margin"?`목표1 ${P.r1}R(절반) · 나머지 ${P.trail?"트레일링":P.r2+"R"}`:pDesc(P.p)}</span></div>
     <div class="lv">
       <div class="lvr"><span class="k">진입가</span><span class="v">${fmt(P.entry)}</span><span class="n">${entryNote}</span></div>
       <div class="lvr sl"><span class="k">손절가</span><span class="v">${fmt(P.sl)}</span><span class="n">가격 ${pctTxt(pE(P.sl))} · 수익률 ${roe(pE(P.sl))}${P.clamp?" · "+P.clamp:""}</span></div>
@@ -428,9 +431,10 @@ function planHTML(a,sym){
     </div>
     ${P.recent&&!P.fresh&&P.adverse>0?`<div class="warn">신호가(${fmt(P.sig.price)})에서 ${L?"롱":"숏"} 반대 방향으로 ${P.adverse.toFixed(2)}% 움직였어요. 신호 자리를 놓친 상태라, 지금 진입하면 불리한 가격이에요. 다음 신호를 기다리는 걸 권해요.</div>`:""}
     ${P.liqNow?`<div class="warn"><b>신호가(${fmt(P.sig.price)})에 ${P.lev}배로 들어갔다면 청산가는 ${fmt(P.liqSig)}인데, 지금 가격(${fmt(a.last)})이 이미 그걸 넘었어요.</b> 이 레버리지는 이 코인 변동에 비해 너무 높아요.</div>`:""}
+    ${P.tight?`<div class="warn">손절폭(가격 ${(P.d/P.entry*100).toFixed(2)}%)이 이 코인 ${tfShort(tf)}의 평균 흔들림(약 ${(P.atr/P.entry*100).toFixed(2)}%)보다 좁아서, 방향이 맞아도 흔들림에 손절될 가능성이 높아요. 레버리지를 낮추거나 최대 손실 %를 올리면 손절폭이 넓어져요.</div>`:""}
     ${P.wild?`<div class="warn">이 코인은 ${tfShort(tf)} 변동이 너무 커서, 정상적인 손절폭이 ${MAXSL[tf]}%를 넘어요. 손절을 ${MAXSL[tf]}%로 제한했지만 흔들려서 털릴 가능성이 높아요. 진입하지 않거나 더 긴 봉으로 보는 걸 권해요.</div>`:""}
-    ${P.liqFirst?`<div class="warn">청산가가 손절가보다 먼저 와요. 손절이 걸리기 전에 청산돼요. 레버리지를 <b>${P.maxLev}배 이하</b>로 낮추세요.</div>`
-      :`<div class="okline">손절가가 청산가보다 먼저 와요. 이 손절폭이면 최대 <b>${P.maxLev}배</b>까지 안전해요.</div>`}
+    ${P.liqFirst?`<div class="warn">청산가가 손절가보다 먼저 와요. 손절이 걸리기 전에 청산돼요. ${cfg.slMode==="margin"?"최대 손실 %를 낮추세요 (청산 전에 손절되려면 약 "+Math.floor(100-MMR*100*P.lev-1)+"% 이하).":`레버리지를 <b>${P.maxLev}배 이하</b>로 낮추세요.`}</div>`
+      :cfg.slMode==="margin"?`<div class="okline">손절가가 청산가보다 먼저 와요. 청산가까지 손절가 뒤로 약 ${(Math.abs(P.liq-P.sl)/P.entry*100).toFixed(2)}% 여유가 있어요.</div>`:`<div class="okline">손절가가 청산가보다 먼저 와요. 이 손절폭이면 최대 <b>${P.maxLev}배</b>까지 안전해요.</div>`}
     ${P.wall?`<div class="warn soft">목표가 1 전에 최근 ${L?"고점":"저점"} ${fmt(P.wall)}이 있어서 ${L?"저항을":"지지를"} 받을 수 있어요.</div>`:""}
     <div class="sizing">
       <div><span class="k">수량</span><span class="v">${qtyTxt(P.qty)} ${sym}</span></div>
@@ -448,11 +452,19 @@ function planHTML(a,sym){
       return `<div class="entryin"><label for="ov-${sym}">실제 진입가<input id="ov-${sym}" data-entry="${sym}" data-edir="${P.dir}" type="number" inputmode="decimal" step="any" placeholder="${+P.entry.toPrecision(8)}" value="${ov?+ov.toPrecision(8):""}"></label>
         <div class="ds">${ov?(ok?`이 가격으로 기록해요. 손절·목표가는 그대로 두고, 손실 한도 ${fmt(P.riskAmt)} USDT에 맞춰 수량을 <b>${qtyTxt(q)} ${sym}</b>로 다시 계산했어요. 손익비 ${(Math.abs(P.tp1-e)/d).toFixed(2)}${P.tp2!=null?" / "+(Math.abs(P.tp2-e)/d).toFixed(2):""}.`:`<b class="down">이 진입가는 손절가(${fmt(P.sl)})보다 불리한 쪽이라 기록할 수 없어요.</b>`):`비워두면 계획 진입가 ${fmt(P.entry)}로 기록돼요. 실제로 체결된 가격이 다르면 입력하세요.`}</div></div>
       <button class="btn" data-log="${sym}" data-dir="${P.dir}" ${ov&&!ok?"disabled":""}>이 계획 일지에 기록</button>`})()}
-    <div class="cfg">
+    <div class="slmode"><span>손절 기준</span><div class="seg sm" role="group" aria-label="손절 기준"><button data-slmode="margin" aria-pressed="${cfg.slMode==="margin"}">증거금 %</button><button data-slmode="chart" aria-pressed="${cfg.slMode!=="margin"}">차트 기준</button></div></div>
+    ${cfg.slMode==="margin"?`<div class="cfg">
+      <label for="cfg-lev">레버리지<input id="cfg-lev" data-cfg="lev" type="number" inputmode="decimal" min="1" max="125" value="${cfg.lev}"><span>배</span></label>
+      <label for="cfg-marginAmt">증거금<input id="cfg-marginAmt" data-cfg="marginAmt" type="number" inputmode="decimal" min="1" value="${cfg.marginAmt}"><span>USDT</span></label>
+      <label for="cfg-maxLoss">최대 손실<input id="cfg-maxLoss" data-cfg="maxLoss" type="number" inputmode="decimal" min="1" max="90" step="1" value="${cfg.maxLoss}"><span>% (증거금)</span></label>
+      <label for="cfg-seed">총 시드<input id="cfg-seed" data-cfg="seed" type="number" inputmode="decimal" min="1" value="${cfg.seed}"><span>USDT</span></label>
+    </div>
+    <div class="nopat">손절가 = 진입가에서 (최대 손실 ÷ 레버리지)%만큼 반대로 간 가격이에요. 지금 설정이면 가격 ${(cfg.maxLoss/cfg.lev).toFixed(2)}%에서 손절하고, 손실은 증거금의 ${cfg.maxLoss}%인 약 ${fmt(riskUSD())} USDT예요. 총 시드는 하루 손실 한도 계산에만 써요.</div>`
+    :`<div class="cfg">
       <label for="cfg-lev">레버리지<input id="cfg-lev" data-cfg="lev" type="number" inputmode="decimal" min="1" max="125" value="${cfg.lev}"><span>배</span></label>
       <label for="cfg-seed">시드<input id="cfg-seed" data-cfg="seed" type="number" inputmode="decimal" min="1" value="${cfg.seed}"><span>USDT</span></label>
       <label for="cfg-risk">1회 손실 한도<input id="cfg-risk" data-cfg="risk" type="number" inputmode="decimal" min="0.1" max="100" step="0.1" value="${cfg.risk}"><span>%</span></label>
-    </div>
+    </div>`}
     <div class="nopat">청산가는 격리 마진, 유지증거금률 0.5% 기준 대략값이고 수수료·펀딩비·거래소별 단계별 증거금은 반영하지 않았어요. 실제 주문 전 거래소 화면의 청산가를 꼭 확인하세요.</div>
   </div>`;
 }
@@ -1061,6 +1073,8 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshAll
 function atrAt(c,i){let s=0,n=0;for(let k=Math.max(1,i-13);k<=i;k++){const x=c[k],pc=c[k-1].close;s+=Math.max(x.high-x.low,Math.abs(x.high-pc),Math.abs(x.low-pc));n++}return n?s/n:c[i].close*0.01}
 function levelsAt(c,i,long,entry,p){
   p=p||DEF_P[tf];
+  if(cfg.slMode==="margin"){const atr=atrAt(c,i),pct=cfg.maxLoss/Math.max(1,cfg.lev),d=entry*pct/100,sg=long?1:-1;
+    return {d,atr,clamp:`증거금의 ${cfg.maxLoss}% 손실 지점 (${cfg.lev}배 기준 가격 ${pct.toFixed(2)}%)`,wild:false,tight:d<atr,sl:entry-sg*d,tp1:entry+sg*p.r1*d,tp2:p.trail?null:entry+sg*p.r2*d,r1:p.r1,r2:p.r2,trail:p.trail}}
   const atr=atrAt(c,i),win=c.slice(Math.max(0,i-9),i+1);
   let sl=long?Math.min(...win.map(x=>x.low))-0.2*atr:Math.max(...win.map(x=>x.high))+0.2*atr,d=Math.abs(entry-sl),clamp="";
   if(long?sl>=entry:sl<=entry)d=0;
@@ -1142,20 +1156,21 @@ function btHTML(sym){
   else if(best.pf>=1.3&&best.totR>0)verdict=`이 코인·${tfShort(tf)}에서는 신호가 통했어요${useF?" (상위 봉 필터를 켰을 때 더 좋았어요)":""}. 승률 ${best.wr.toFixed(0)}%, 수익 팩터 ${best.pf.toFixed(2)}.`;
   else if(best.totR>0)verdict=`조금 수익이었지만 수익 팩터가 ${best.pf.toFixed(2)}로 낮아요. 수수료·슬리피지를 생각하면 신중하게 쓰세요.`;
   else verdict=`이 코인·${tfShort(tf)}에서는 신호를 그대로 따르면 손실이었어요. 다른 봉을 쓰거나 이 코인은 신호를 참고만 하세요.`;
-  const usd=v=>fmt(v*cfg.seed*cfg.risk/100);
+  const usd=v=>fmt(v*riskUSD());
   return head+`<div class="bt">
     <div class="ds">${d(r.from)} ~ ${d(r.to)} · ${tfShort(tf)} ${r.count}개 · 수수료 포함, 한 캔들에서 손절과 목표가가 함께 닿으면 손절로 계산</div>
     <div class="btv ${best.totR>0&&best.n>=10?"good":"bad"}">${verdict}</div>
     <div class="bttbl"><table><thead><tr><th></th><th>필터 없음</th><th>상위 봉 필터${cfg.mtf?" (사용 중)":""}</th></tr></thead><tbody>
       ${labels.map((l,k)=>`<tr><th>${l}</th><td>${A[k]}</td><td>${F[k]}</td></tr>`).join("")}
     </tbody></table></div>
-    <div class="ds">1R = 1회 손실 한도(시드의 ${cfg.risk}%, ${usd(1)} USDT). 누적 ${fmtR(best.totR)}는 약 ${usd(best.totR)} USDT예요 (복리 미반영). 롱 ${best.long.n}회 중 ${best.long.w}승 · 숏 ${best.short.n}회 중 ${best.short.w}승.</div>
+    <div class="ds">1R = 손절 한 번의 손실(${cfg.slMode==="margin"?`증거금 ${fmt(cfg.marginAmt)} USDT의 ${cfg.maxLoss}%`:`시드의 ${cfg.risk}%`}, ${usd(1)} USDT). 누적 ${fmtR(best.totR)}는 약 ${usd(best.totR)} USDT예요 (복리 미반영). 롱 ${best.long.n}회 중 ${best.long.w}승 · 숏 ${best.short.n}회 중 ${best.short.w}승.</div>
     <div class="ds">과거 결과가 미래 수익을 보장하지 않아요. 표본이 30회 이상이고 두 기간 이상에서 비슷할 때 더 믿을 만해요.</div>
     ${optHTML(r.opt,sym)}
     <button class="btn" data-bt="${sym}">다시 계산</button></div>`;
 }
 function optHTML(o,sym){
   if(!o)return"";
+  if(cfg.slMode==="margin")return `<div class="opt"><div class="h4">손절·목표 최적화</div><div class="ds">지금은 손절을 증거금 % 기준으로 쓰고 있어서, 손절폭 최적화는 적용하지 않아요. 차트 기준으로 바꾸면 이 코인에 맞는 손절폭을 찾아줘요.</div></div>`;
   const d=t=>{if(!t)return"";const x=new Date(t);return `${x.getMonth()+1}/${x.getDate()}`};
   const row=(lab,x)=>x?`<tr><th>${lab}</th><td>${x.n}회</td><td>${x.n?x.wr.toFixed(0)+"%":"–"}</td><td>${x.n?fmtR(x.avgR):"–"}</td><td>${x.n?fmtR(x.totR):"–"}</td></tr>`:"";
   return `<div class="opt"><div class="h4">손절·목표 최적화 (${tfShort(tf)})</div>
@@ -1676,6 +1691,7 @@ listEl.addEventListener("click",e=>{
     delete entryOv[sym+"|"+P.dir];saveJournal();lg.textContent="일지에 기록했어요 · 위쪽 매매 일지에서 확인";lg.disabled=true;renderJournal();return}
   const bb=e.target.closest("[data-bt]");if(bb){runBacktest(bb.dataset.bt);return}
   const orr=e.target.closest("[data-optreset]");if(orr){const k=orr.dataset.optreset+"|"+tf;if(optStore[k])optStore[k].adopted=false;store.set("bb.opt",optStore);if(bt[k]&&bt[k].opt){bt[k].opt.adopted=false;bt[k].opt.reason="직접 기본값으로 되돌렸어요."}render();return}
+  const sm=e.target.closest("[data-slmode]");if(sm){cfg.slMode=sm.dataset.slmode;store.set("bb.cfg",cfg);coins.forEach(x=>{if(state[x])delete state[x].cacheKey});render();return}
   const mt=e.target.closest("[data-mtf]");if(mt){cfg.mtf=!cfg.mtf;store.set("bb.cfg",cfg);render();return}
   const db=e.target.closest("[data-dir]");if(db&&db.dataset.sym){dirPick[db.dataset.sym]=db.dataset.dir;render();return}
   const ci=e.target.closest("[data-ci]");if(ci){const sy=ci.dataset.sym,v=+ci.dataset.ci;selCandle[sy]=selCandle[sy]===v?null:v;render();return}
@@ -1689,7 +1705,7 @@ document.addEventListener("change",e=>{const en=e.target.dataset&&e.target.datas
   if(en){const v=parseFloat(e.target.value),k=en+"|"+e.target.dataset.edir;if(isFinite(v)&&v>0)entryOv[k]=v;else delete entryOv[k];e.target.blur();pendingRender=false;render();return}
   const jf=e.target.dataset&&e.target.dataset.jf;if(jf){pendingRender=false;editTrade(e.target.dataset.jid,jf,parseFloat(e.target.value));e.target.blur();render();return}
   const k=e.target.dataset&&e.target.dataset.cfg;if(!k)return;let v=parseFloat(e.target.value);
-  const lim={lev:[1,125],seed:[1,1e9],risk:[0.1,100],dayLimit:[1,100]}[k];if(!isFinite(v))v=cfg[k];v=Math.min(lim[1],Math.max(lim[0],v));cfg[k]=v;store.set("bb.cfg",cfg);e.target.blur();pendingRender=false;render()});
+  const lim={lev:[1,125],seed:[1,1e9],risk:[0.1,100],dayLimit:[1,100],marginAmt:[1,1e9],maxLoss:[1,90]}[k];if(!isFinite(v))v=cfg[k];v=Math.min(lim[1],Math.max(lim[0],v));cfg[k]=v;store.set("bb.cfg",cfg);e.target.blur();pendingRender=false;render()});
 document.addEventListener("focusout",e=>{if(e.target.dataset&&(e.target.dataset.cfg||e.target.dataset.jf||e.target.dataset.entry)&&pendingRender)setTimeout(()=>{pendingRender=false;render()},0)});
 $("#addForm").addEventListener("submit",e=>{
   e.preventDefault();const v=$("#addInput").value.trim().toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/USDT$/,"");
