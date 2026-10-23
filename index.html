@@ -132,6 +132,9 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid
 .pt .nm{font-weight:700;font-size:.88rem}
 .pt .ds{font-size:.8rem;color:var(--muted)}
 .pt .s{font-family:var(--mono);font-weight:700;font-size:.85rem}
+.pt.ended .sg{opacity:.55}
+.pt .tag{font-size:.68rem;font-weight:700;padding:1px 5px;border-radius:4px;background:var(--flat-soft);color:var(--ink);vertical-align:1px}
+.pt .tag.off{color:var(--down)}
 .nopat{font-size:.85rem;color:var(--muted)}
 .wy{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .wyhead{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center}
@@ -250,7 +253,7 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid
 .lvr .k{font-size:.8rem;font-weight:600;color:var(--muted)}
 .lvr .v{font-family:var(--mono);font-weight:600;font-size:1rem;font-variant-numeric:tabular-nums}
 .lvr .n{grid-column:2;font-size:.75rem;color:var(--muted)}
-.lvr.sl .k,.lvr.sl .v{color:var(--down)} .lvr.tp .k,.lvr.tp .v{color:var(--up)} .lvr.lq .k,.lvr.lq .v{color:var(--liq)}
+.lvr.sl .k,.lvr.sl .v{color:var(--down)} .lvr.tp .k,.lvr.tp .v{color:var(--up)} .lvr.lq .k,.lvr.lq .v{color:var(--liq)} .lvr.inv .k{color:var(--muted)}
 .warn{font-size:.82rem;background:var(--down-soft);color:var(--ink);border-radius:8px;padding:8px 10px;border-left:3px solid var(--down)}
 .warn.soft{background:var(--flat-soft);border-left-color:var(--flat)}
 .okline{font-size:.82rem;color:var(--muted)}
@@ -371,7 +374,7 @@ const whale={};let mobKey=store.get("bb.mobula",""),mobState={ok:null,msg:""},sh
 /* Stop = beyond the recent 10-candle swing, clamped to sl[0]–sl[1] × ATR. Half off at r1 × stop distance;
    the rest at r2 × stop distance, or trailed trail × ATR behind the best price when trail > 0. */
 const DEF_P={"15m":{sl:[1,2],r1:1.5,r2:2.5,trail:0},"4h":{sl:[1,3],r1:1.5,r2:3,trail:0},"1D":{sl:[1.5,3],r1:2,r2:4,trail:0}};
-let optStore=store.get("bb.opt",{});
+let optStore=store.get("bb.opt",{}),patStore=store.get("bb.pat",{});
 function params(sym){const o=optStore[sym+"|"+tf];return cfg.slMode!=="margin"&&o&&o.adopted?o.p:DEF_P[tf]}
 function pDesc(p){return `손절 ATR ${p.sl[0]}~${p.sl[1]}배 · 목표1 ${p.r1}R(절반) · 나머지 ${p.trail?`트레일링 ATR ${p.trail}배`:p.r2+"R"}`}let showJournal=false;const bt={},fut={};let delArm=null;
 const dirPick={},entryOv={},selCandle={};
@@ -380,11 +383,13 @@ const MMR=0.005, FEE=0.00055;
    clamped to 1–3 ATR, targets at 1.5R and 3R, isolated-margin liquidation estimate. */
 function tradePlan(a,dir,sym){
   const c=a.candles,L=c.length,long=dir==="long";
-  const want=long?"B":"S",sig=a.sigs.filter(s=>s.type===want).pop();
-  const recent=sig&&L-1-sig.i<=3,away=sig?Math.abs(a.last-sig.price):0,atrNow=atrAt(c,L-1);
-  const fresh=recent&&away<=0.5*atrNow;
+  /* Only a signal that is still alive counts; an invalidated / expired one never drives the plan. */
+  const want=long?"B":"S",act=a.sigs.active,sig=act&&act.type===want?act:null,opp=act&&act.type!==want?act:null;
+  const recent=!!sig&&L-1-sig.i<=3,away=sig?Math.abs(a.last-sig.price):0,atrNow=atrAt(c,L-1);
+  const fresh=recent&&sig.be==null&&away<=0.5*atrNow;
   const entry=fresh?sig.price:a.last,p=params(sym),o=optStore[sym+"|"+tf];
-  const lv=levelsAt(c,fresh?sig.i:L-1,long,entry,p),{d,sl,tp1,clamp,atr,wild,tight}=lv,tp2=lv.tp2;
+  const prog=sig?(long?a.last-sig.price:sig.price-a.last)/Math.max(1e-12,Math.abs(sig.price-sig.inv)):0,chase=!!sig&&!fresh&&prog>0.5;
+  const lv=levelsAt(c,fresh?sig.i:L-1,long,entry,p,sig?sig.inv:null),{d,sl,tp1,clamp,atr,wild,tight}=lv,tp2=lv.tp2;
   const lev=Math.max(1,cfg.lev);
   const liq=long?entry*(1-1/lev+MMR):entry*(1+1/lev-MMR);
   const dPct=d/entry,maxLev=Math.max(1,Math.floor(1/(dPct+MMR+0.003)));
@@ -393,7 +398,7 @@ function tradePlan(a,dir,sym){
   const mm=cfg.slMode==="margin",riskAmt=riskUSD(),qty=mm?cfg.marginAmt*lev/entry:riskAmt/d,notional=qty*entry,margin=notional/lev,fees=notional*FEE*2;
   const swingHi=Math.max(...c.slice(-50).map(x=>x.high)),swingLo=Math.min(...c.slice(-50).map(x=>x.low));
   const wall=long?(swingHi>entry&&swingHi<tp1?swingHi:null):(swingLo<entry&&swingLo>tp1?swingLo:null);const tpEnd=tp2!=null?tp2:tp1;
-  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,moved:sig?(a.last-sig.price)/sig.price*100:0};
+  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,opp,prog,chase,moved:sig?(a.last-sig.price)/sig.price*100:0};
 }
 function pctTxt(v){return (v>=0?"+":"−")+Math.abs(v).toFixed(2)+"%"}
 function qtyTxt(q){return q>=100?Math.round(q).toLocaleString("en-US"):q>=1?q.toFixed(2):q.toPrecision(3)}
@@ -410,19 +415,21 @@ function wyHTML(a){
       <div class="evs">${w.w.ev.map(e=>`<span>${e.t} ${fmt(e.p)}</span>`).join("")}</div></div>`}).join("");
 }
 function planHTML(a,sym){
-  const def=a.sigs.length?(a.sigs[a.sigs.length-1].type==="B"?"long":"short"):(a.total<0?"short":"long");
-  const dir=dirPick[sym]||def,P=tradePlan(a,dir,sym),L=P.long;
+  const dir=dirPick[sym]||defDir(a),P=tradePlan(a,dir,sym),L=P.long;
   const roe=v=>pctTxt(v*P.lev*(L?1:-1));
   const pE=v=>(v-P.entry)/P.entry*100;
-  const against=(L&&a.sigs.zone<0)||(!L&&a.sigs.zone>0)||(a.sigs.zone===0);
+  const le=a.sigs.lastEnded;
   const entryNote=P.fresh?`${fmtTime(P.sig.t)} ${L?"B":"S"} 신호 캔들 종가 · 지금 가격도 근처라 이 가격대 진입 가능`:(P.sig?`현재가 기준 · ${L?"B":"S"} 신호가 ${fmt(P.sig.price)}(${fmtTime(P.sig.t)})에서 이미 ${pctTxt(P.moved)} 움직였어요`:"현재가 기준");
   return `<div class="plan">
     <div class="planhead"><h3 class="h3">선물 진입 계획</h3>
       <div class="seg sm" role="group" aria-label="포지션 방향"><button data-dir="long" data-sym="${sym}" aria-pressed="${L}">롱</button><button data-dir="short" data-sym="${sym}" aria-pressed="${!L}">숏</button></div></div>
-    ${against?`<div class="warn soft">${a.sigs.zone===0?"지금은 관망 구간이에요. 신호가 뜨기 전 미리 보는 계획이에요.":"지금 신호 방향과 반대인 계획이에요."}</div>`:""}
+    ${!P.sig?`<div class="warn soft">${P.opp?`지금 살아있는 신호는 <b>${P.opp.type==="B"?"B 롱":"S 숏"}</b>이에요. 반대 방향 계획이에요.`:`지금은 살아있는 신호가 없어요 (관망)${le?` · 직전 ${le.type} 신호는 ${END_SHORT[le.end.reason]}`:""}. 신호가 뜨기 전 미리 보는 계획이에요.`}</div>`:""}
+    ${P.sig&&P.sig.be!=null?`<div class="warn">이 ${L?"B":"S"} 신호는 이미 목표가 1(${fmt(P.sig.tp1)})에 닿아서 본전 보호 중이에요. 이미 들어간 사람은 손절을 진입가로 올리는 구간이고, <b>지금 새로 들어가기엔 늦었어요.</b></div>`
+      :P.chase?`<div class="warn">신호가(${fmt(P.sig.price)})에서 이미 손절폭의 ${P.prog.toFixed(1)}배만큼 ${L?"올랐":"내렸"}어요. 지금 따라 들어가면 무효 가격까지 멀어서 손익비가 나빠요. ${L?"눌림":"반등"}을 기다리세요.</div>`:""}
     <div class="pbasis ${P.opt&&cfg.slMode!=="margin"?"on":""}">${cfg.slMode==="margin"?`<b>증거금 % 손절</b> · ${cfg.lev}배, 증거금의 ${cfg.maxLoss}%에서 손절`:P.opt?`<b>최적화 값 적용 중</b> · 검증 구간 ${P.opt.test.n}회, 승률 ${P.opt.test.wr.toFixed(0)}%, 평균 ${fmtR(P.opt.test.avgR)}`:`<b>${tfShort(tf)} 기본값</b> · 백테스트를 돌리면 이 코인에 맞게 최적화해요`}<br><span>${cfg.slMode==="margin"?`목표1 ${P.r1}R(절반) · 나머지 ${P.trail?"트레일링":P.r2+"R"}`:pDesc(P.p)}</span></div>
     <div class="lv">
       <div class="lvr"><span class="k">진입가</span><span class="v">${fmt(P.entry)}</span><span class="n">${entryNote}</span></div>
+      ${P.sig?`<div class="lvr inv"><span class="k">무효 가격</span><span class="v">${fmt(P.sig.inv)}</span><span class="n">${SETUP_NM[P.sig.setup]} 신호의 차트 구조 기준 · 여기 닿으면 신호 끝${cfg.slMode==="margin"?(Math.abs(P.entry-P.sl)<Math.abs(P.entry-P.sig.inv)*0.85?" · <b>증거금 손절가가 이보다 가까워서, 신호가 살아 있어도 흔들림에 먼저 손절될 수 있어요</b>":Math.abs(P.entry-P.sl)>Math.abs(P.entry-P.sig.inv)*1.15?" · <b>증거금 손절가보다 이 가격이 먼저 와요. 여기서 먼저 정리하는 걸 권해요</b>":""):""}</span></div>`:""}
       <div class="lvr sl"><span class="k">손절가</span><span class="v">${fmt(P.sl)}</span><span class="n">가격 ${pctTxt(pE(P.sl))} · 수익률 ${roe(pE(P.sl))}${P.clamp?" · "+P.clamp:""}</span></div>
       <div class="lvr tp"><span class="k">목표가 1</span><span class="v">${fmt(P.tp1)}</span><span class="n">가격 ${pctTxt(pE(P.tp1))} · 수익률 ${roe(pE(P.tp1))} · 손익비 ${P.r1} · 절반 익절</span></div>
       ${P.tp2!=null?`<div class="lvr tp"><span class="k">목표가 2</span><span class="v">${fmt(P.tp2)}</span><span class="n">가격 ${pctTxt(pE(P.tp2))} · 수익률 ${roe(pE(P.tp2))} · 손익비 ${P.r2} · 나머지 정리</span></div>`
@@ -446,7 +453,7 @@ function planHTML(a,sym){
     ${(()=>{const fr=futRead(sym);return L&&fr.crowdLong?`<div class="warn">선물 수급이 롱 쪽으로 쏠려 있어요 (펀딩비·롱숏 비율). 롱이면 수량을 절반으로 줄이는 걸 권해요.</div>`:!L&&fr.crowdShort?`<div class="warn">선물 수급이 숏 쪽으로 쏠려 있어요. 숏이면 숏 스퀴즈에 주의하고 수량을 줄이세요.</div>`:""})()}
     ${a.sigs.bias!=null&&((L&&a.sigs.bias<0)||(!L&&a.sigs.bias>0))?`<div class="warn">상위 봉(${tfShort(HTF[tf])||"주봉"}) 추세가 ${a.sigs.bias<0?"하락":"상승"}이에요. ${L?"롱":"숏"}은 역추세 진입이에요.</div>`:""}
     ${dayLimitHit()?`<div class="warn">오늘 손실 한도에 도달했어요. 새 진입은 쉬는 걸 권해요.</div>`:""}
-    <div class="rules"><b>운영 규칙</b><ol><li>목표가 1에서 <b>절반 익절</b></li><li>남은 절반은 손절가를 <b>진입가(본전)</b>로 올리기</li><li>${P.tp2!=null?"목표가 2":`트레일링 스톱(ATR ${P.trail}배)`} 또는 반대 신호(${L?"S":"B"})에서 정리</li></ol>
+    <div class="rules"><b>운영 규칙</b><ol><li>목표가 1에서 <b>절반 익절</b></li><li>남은 절반은 손절가를 <b>진입가(본전)</b>로 올리기</li><li>${P.tp2!=null?"목표가 2":`트레일링 스톱(ATR ${P.trail}배)`}, 반대 신호(${L?"S":"B"}), 또는 신호 유효기간(${a.sigs.expN}캔들) 종료 시 정리</li></ol>
       <div class="ds">결과별 손익: 손절 −1R(약 −${fmt(P.riskAmt)} USDT) · 목표1 후 본전 +${(0.5*P.r1).toFixed(2)}R${P.tp2!=null?` · 목표2까지 +${(0.5*P.r1+0.5*P.r2).toFixed(2)}R`:" · 트레일링은 추세 길이만큼"}</div></div>
     ${(()=>{const ov=entryOv[sym+"|"+P.dir],e=ov||P.entry,d=Math.abs(e-P.sl),ok=ov?(L?ov>P.sl:ov<P.sl):true,q=d>0?P.riskAmt/d:0;
       return `<div class="entryin"><label for="ov-${sym}">실제 진입가<input id="ov-${sym}" data-entry="${sym}" data-edir="${P.dir}" type="number" inputmode="decimal" step="any" placeholder="${+P.entry.toPrecision(8)}" value="${ov?+ov.toPrecision(8):""}"></label>
@@ -485,116 +492,272 @@ const pct=v=>(v*100).toFixed(0)+"%";
 function swingIdx(arr,k,isHigh){const out=[];for(let i=k;i<arr.length-k;i++){let ok=true;for(let j=i-k;j<=i+k;j++){if(j===i)continue;if(isHigh?arr[j]>arr[i]:arr[j]<arr[i]){ok=false;break}}if(ok&&(!out.length||i-out[out.length-1]>1))out.push(i)}return out}
 function detectPatterns(c){
   const L=c.length;if(L<30)return[];
+  const out=legacyPatterns(c.slice(-50));
+  if(L>=40){out.push(...sidePatterns(c,fmt,false),...sidePatterns(mirrorC(c),v=>fmt(1/v),true),...structPatterns(c))}
+  return out;
+}
+/* Patterns from the user's first chart set (kept as they were). */
+function legacyPatterns(c){
+  const L=c.length;if(L<30)return[];
   const close=c.map(x=>x.close),high=c.map(x=>x.high),low=c.map(x=>x.low),open=c.map(x=>x.open),vol=c.map(x=>x.volume||0);
   const ma7=sma(close,7),ma14=sma(close,14),ma28=sma(close,28);
   const last=close[L-1],totR=(max(high)-min(low))||1e-12;
-  const out=[];
-  // 1·4. 횡보 후 돌파 / 횡보 하단 붕괴
+  const out=[],P=(id,nm,kind,stage,sc,ds)=>out.push({id:id+(sc>0?"+":"-"),nm,grp:"차트",kind,stage,sc,dir:Math.sign(sc),ds,inv:null,tgt:null});
   for(let k=1;k<=3;k++){
     const b=L-k,B=20;if(b-B<0)break;
     const bh=max(high.slice(b-B,b)),bl=min(low.slice(b-B,b)),vAvg=avg(vol.slice(b-B,b));
     const narrow=(bh-bl)<=0.45*totR, vx=vAvg>0?vol[b]/vAvg:0;
-    if(narrow&&close[b]>bh*1.005&&vx>=2&&last>bh){out.push({nm:"횡보 후 거래량 돌파",sc:3,ds:`${B}개 캔들 박스권 상단 돌파, 거래량 평소의 ${vx.toFixed(1)}배`});break}
-    if(narrow&&close[b]<bl*0.995&&last<bl&&(vx>=1.5||(bl-last)/bl>0.05)){out.push({nm:"횡보 하단 붕괴",sc:-3,ds:`${B}개 캔들 박스권 하단 이탈 (선반 후 절벽형)`});break}
+    if(narrow&&close[b]>bh*1.005&&vx>=2&&last>bh){P("vbrk","횡보 후 거래량 돌파","neu","done",3,`${B}개 캔들 박스권 상단 돌파, 거래량 평소의 ${vx.toFixed(1)}배`);break}
+    if(narrow&&close[b]<bl*0.995&&last<bl&&(vx>=1.5||(bl-last)/bl>0.05)){P("vbrk","횡보 하단 붕괴","neu","done",-3,`${B}개 캔들 박스권 하단 이탈 (선반 후 절벽형)`);break}
   }
-  // 2. 급등 후 고점 이탈
   {const s=L-20;let p=s;for(let i=s;i<L;i++)if(high[i]>high[p])p=i;
    if(p<=L-3&&p-12>=0&&!out.some(q=>q.sc===-3)){const base=min(low.slice(p-12,p)),rise=high[p]/base-1,drop=1-last/high[p];
-     if(rise>=0.3&&drop>=0.1&&ma7[L-1]!=null&&last<ma7[L-1]&&ma7[L-1]<ma14[L-1])out.push({nm:"급등 후 고점 이탈",sc:-3,ds:`+${pct(rise)} 급등 뒤 고점 대비 −${pct(drop)}, 7선이 14선 아래로 꺾임`})}}
-  // 3. 쌍봉 / 쌍바닥
-  {const from=Math.max(0,L-40);
-   const sh=swingIdx(high,3,true).filter(i=>i>=from);
-   if(sh.length>=2){const i1=sh[sh.length-2],i2=sh[sh.length-1],h1=high[i1],h2=high[i2],top=Math.min(h1,h2);
-     if(i2-i1>=5&&Math.abs(h1-h2)/Math.max(h1,h2)<=0.03){const tr=min(low.slice(i1,i2+1));
-       if((top-tr)/top>=0.04){if(last<tr)out.push({nm:"쌍봉 넥라인 이탈",sc:-2,ds:"비슷한 고점에서 두 번 막힌 뒤 중간 저점 아래로 내려옴"});
-         else if(last<top*0.98&&ma7[L-1]!=null&&last<ma7[L-1])out.push({nm:"쌍봉 형성 중",sc:-1,ds:"비슷한 고점에서 두 번째로 밀리는 중"})}}}
-   const sl=swingIdx(low,3,false).filter(i=>i>=from);
-   if(sl.length>=2){const i1=sl[sl.length-2],i2=sl[sl.length-1],l1=low[i1],l2=low[i2],bot=Math.max(l1,l2);
-     if(i2-i1>=5&&Math.abs(l1-l2)/Math.min(l1,l2)<=0.03){const pk=max(high.slice(i1,i2+1));
-       if((pk-bot)/bot>=0.04){if(last>pk)out.push({nm:"쌍바닥 넥라인 돌파",sc:2,ds:"비슷한 저점을 두 번 지지한 뒤 중간 고점 위로 올라섬"});
-         else if(last>bot*1.02&&ma7[L-1]!=null&&last>ma7[L-1])out.push({nm:"쌍바닥 형성 중",sc:1,ds:"비슷한 저점에서 두 번째 반등 중"})}}}}
-  // 5. 역배열 계단식 하락
+     if(rise>=0.3&&drop>=0.1&&ma7[L-1]!=null&&last<ma7[L-1]&&ma7[L-1]<ma14[L-1])P("pdump","급등 후 고점 이탈","rev","form",-3,`+${pct(rise)} 급등 뒤 고점 대비 −${pct(drop)}, 7선이 14선 아래로 꺾임`)}}
   {const a=ma7[L-1],b=ma14[L-1],d=ma28[L-1];
    if(a!=null&&d!=null&&a<b&&b<d){const sh=swingIdx(high,2,true).slice(-3);
-     if(sh.length===3&&high[sh[0]]>high[sh[1]]&&high[sh[1]]>high[sh[2]])out.push({nm:"역배열 계단식 하락",sc:-2,ds:"고점이 계속 낮아지고 이평선 7<14<28 역배열"})}}
-  // 6. 정배열 눌림목 반등
+     if(sh.length===3&&high[sh[0]]>high[sh[1]]&&high[sh[1]]>high[sh[2]])P("stair","역배열 계단식 하락","cont","form",-2,"고점이 계속 낮아지고 이평선 7<14<28 역배열")}}
   {const a=ma7[L-1],b=ma14[L-1],d=ma28[L-1];
    if(a!=null&&d!=null&&a>b&&b>d&&!out.length){const touched=Math.min(low[L-1],low[L-2])<=b*1.01;
      const wasAbove=[4,5,6].every(k=>ma7[L-k]!=null&&close[L-k]>ma7[L-k]);
-     if(touched&&wasAbove&&last>b&&last>open[L-1])out.push({nm:"정배열 눌림목 반등",sc:2,ds:"상승 정배열 중 14선까지 눌렸다가 양봉으로 반등"})}}
-  // ---- classic chart patterns ----
-  const tr=c.map((x,i)=>i?Math.max(x.high-x.low,Math.abs(x.high-close[i-1]),Math.abs(x.low-close[i-1])):x.high-x.low);
-  const atr=avg(tr.slice(-14))||totR/20;
-  const SH=swingIdx(high,3,true),SLw=swingIdx(low,3,false);
-  const has=nm=>out.some(p=>p.nm.startsWith(nm));
-  // 7. 컵앤핸들
-  for(const iL of SH.filter(i=>i>=L-50&&i<=L-15)){
+     if(touched&&wasAbove&&last>b&&last>open[L-1])P("mapb","정배열 눌림목 반등","cont","form",2,"상승 정배열 중 14선까지 눌렸다가 양봉으로 반등")}}
+  return out;
+}
+/* ---------- pattern library v2 (chart · Wyckoff · harmonic · Elliott · candles) ----------
+   Every pattern is written once for the bullish side and run a second time on mirrored candles
+   (price → 1/price, so highs become lows) to get the bearish twin. Each event carries
+   id · name · group · kind (rev / cont / neu / cdl) · stage (form / done / candle) · score · invalidation · target. */
+function atrW(c,n=14){const L=c.length;let s=0,k=0;for(let i=Math.max(1,L-n);i<L;i++){const x=c[i],pc=c[i-1].close;s+=Math.max(x.high-x.low,Math.abs(x.high-pc),Math.abs(x.low-pc));k++}return k?s/k:((c[L-1].high-c[L-1].low)||c[L-1].close*0.01)}
+function zigzag(c,th){
+  const P=[];let t=null,ei=0,hiI=0,loI=0;
+  for(let i=1;i<c.length;i++){
+    if(t===null){if(c[i].high>c[hiI].high)hiI=i;if(c[i].low<c[loI].low)loI=i;
+      if(c[hiI].high-c[loI].low>=th){if(loI<hiI){P.push({i:loI,p:c[loI].low,t:"L"});t="H";ei=hiI}else{P.push({i:hiI,p:c[hiI].high,t:"H"});t="L";ei=loI}}continue}
+    if(t==="H"){if(c[i].high>=c[ei].high)ei=i;else if(c[ei].high-c[i].low>=th){P.push({i:ei,p:c[ei].high,t:"H"});t="L";ei=i}}
+    else{if(c[i].low<=c[ei].low)ei=i;else if(c[i].high-c[ei].low>=th){P.push({i:ei,p:c[ei].low,t:"L"});t="H";ei=i}}
+  }
+  const tent=t?{i:ei,p:t==="H"?c[ei].high:c[ei].low,t,tent:true}:null;
+  return tent?[...P,tent]:P;
+}
+function mirrorC(c){return c.map(x=>({t:x.t,open:1/x.open,close:1/x.close,high:1/x.low,low:1/x.high,volume:x.volume}))}
+function linFit(pts){const n=pts.length;let sx=0,sy=0,sxx=0,sxy=0;pts.forEach(([x,y])=>{sx+=x;sy+=y;sxx+=x*x;sxy+=x*y});const d=n*sxx-sx*sx,m=d?(n*sxy-sx*sy)/d:0,b=(sy-m*sx)/n;return {m,b,at:x=>b+m*x}}
+function quadFit(y){const n=y.length;let S=[0,0,0,0,0],T=[0,0,0];
+  for(let k=0;k<n;k++){const t=k/(n-1);let p=1;for(let e=0;e<5;e++){S[e]+=p;if(e<3)T[e]+=p*y[k];p*=t}}
+  const M=[[S[0],S[1],S[2],T[0]],[S[1],S[2],S[3],T[1]],[S[2],S[3],S[4],T[2]]];
+  for(let a=0;a<3;a++){let piv=a;for(let r=a+1;r<3;r++)if(Math.abs(M[r][a])>Math.abs(M[piv][a]))piv=r;[M[a],M[piv]]=[M[piv],M[a]];if(Math.abs(M[a][a])<1e-15)return null;
+    for(let r=0;r<3;r++)if(r!==a){const f=M[r][a]/M[a][a];for(let q=a;q<4;q++)M[r][q]-=f*M[a][q]}}
+  const c0=M[0][3]/M[0][0],c1=M[1][3]/M[1][1],c2=M[2][3]/M[2][2],f=t=>c0+c1*t+c2*t*t,mean=y.reduce((s,v)=>s+v,0)/n;
+  let ssr=0,sst=0;y.forEach((v,k)=>{const e=v-f(k/(n-1));ssr+=e*e;sst+=(v-mean)**2});
+  return {a:c2,b:c1,c:c0,f,r2:sst?1-ssr/sst:0};
+}
+const inR=(v,a,b)=>v>=a&&v<=b;
+const HARM=[
+  ["gartley","가틀리",{ab:[.55,.68],bc:[.382,.886],cd:[1.13,1.7],ad:[.75,.82]}],
+  ["bat","박쥐",{ab:[.382,.5],bc:[.382,.886],cd:[1.618,2.618],ad:[.85,.92]}],
+  ["altbat","알트 배트",{ab:[.3,.382],bc:[.382,.886],cd:[2,3.618],ad:[1.09,1.17]}],
+  ["bfly","나비",{ab:[.75,.82],bc:[.382,.886],cd:[1.618,2.618],ad:[1.27,1.618]}],
+  ["crab","게",{ab:[.382,.618],bc:[.382,.886],cd:[2.24,3.618],ad:[1.55,1.68]}],
+  ["dcrab","딥 크랩",{ab:[.85,.92],bc:[.382,.886],cd:[2,3.618],ad:[1.55,1.68]}],
+  ["cypher","사이퍼",{ab:[.382,.618],xc:[1.13,1.414],cdx:[.75,.82]}],
+  ["nen","넨 스타",{ab:[.382,.886],bc:[1.13,1.414],cd:[1.272,2]}],
+  ["fivo","5-0",{ab:[1.13,1.618],bc:[1.618,2.24],cd:[.45,.55]}],
+  ["shark","상어",{bc:[1.13,1.618],ad:[.886,1.13]}]
+];
+/* Bullish-side detector. With mir=true the candles are mirrored, so every event found is the bearish twin. */
+function sidePatterns(c,F,mir){
+  const L=c.length,out=[];if(L<40)return out;
+  const close=c.map(x=>x.close),high=c.map(x=>x.high),low=c.map(x=>x.low),A=atrW(c),last=close[L-1],k=c[L-1];
+  const R=v=>v==null?null:(mir?1/v:v);
+  const add=(id,nm,nmM,grp,kind,stage,sc,ds,inv,tgt)=>{const d=Math.sign(sc)*(mir?-1:1);out.push({id:id+(d>0?"+":d<0?"-":""),nm:mir?nmM:nm,grp,kind,stage,sc:mir?-sc:sc,dir:d,ds,inv:R(inv),tgt:R(tgt)})};
+  const has=id=>out.some(e=>e.id.startsWith(id));
+  const up=lvl=>last>lvl&&[2,3,4].some(j=>L-j>=0&&close[L-j]<=lvl);
+  const dn=lvl=>last<lvl&&[2,3,4].some(j=>L-j>=0&&close[L-j]>=lvl);
+  const T=(arr,ts)=>arr.length>=ts.length&&arr.slice(-ts.length).every((x,j)=>x.t===ts[j]);
+  const lastN=(arr,n)=>arr.slice(-n);
+  const bullC=k.close>k.open;
+  /* pivots of a pattern that ends at a recent low, either still forming (tent) or just confirmed */
+  const atLow=(arr,ts)=>{if(T(arr,ts))return lastN(arr,ts.length);if(T(arr,[...ts,"H"])&&arr[arr.length-1].tent)return arr.slice(-ts.length-1,-1);return null};
+  const revUp=p=>p.i>=L-5&&last>p.p+0.3*A&&bullC;
+  const upTrendBefore=i=>i>=10&&close[i]-close[Math.max(0,i-30)]>=4*A;
+  const downTrendBefore=i=>i>=10&&close[Math.max(0,i-30)]-close[i]>=4*A;
+  const pv=zigzag(c,2*A),pv2=zigzag(c,1.5*A);
+
+  /* ===== chart: reversal bottoms ===== */
+  // inverse head & shoulders
+  if(T(pv,["L","H","L","H","L","H"])){const [ls,n1,hd,n2,rs]=lastN(pv,6);const nk=linFit([[n1.i,n1.p],[n2.i,n2.p]]),nl=nk.at(L-1),dep=nk.at(hd.i)-hd.p;
+    if(hd.p<ls.p-0.5*A&&hd.p<rs.p-0.5*A&&Math.abs(ls.p-rs.p)<=0.4*dep&&dep>=2.5*A&&up(nl))
+      add("ihs","역헤드앤숄더 넥라인 돌파","헤드앤숄더 넥라인 이탈","차트","rev","done",3,`머리 ${F(hd.p)}, 넥라인 ${F(nl)} ${mir?"이탈":"돌파"}`,rs.p-0.2*A,nl+dep)}
+  if(!has("ihs")&&T(pv,["L","H","L","H","L"])){const [ls,n1,hd,n2,rs]=lastN(pv,5);const nk=linFit([[n1.i,n1.p],[n2.i,n2.p]]),dep=nk.at(hd.i)-hd.p;
+    if(rs.tent&&hd.p<ls.p-0.5*A&&hd.p<rs.p-0.5*A&&Math.abs(ls.p-rs.p)<=0.4*dep&&dep>=2.5*A&&last>rs.p+0.3*A)
+      add("ihs","역헤드앤숄더 형성 중","헤드앤숄더 형성 중","차트","rev","form",1,`오른쪽 어깨에서 ${mir?"밀리는":"반등하는"} 중, 넥라인 ${F(nk.at(L-1))}`,rs.p-0.2*A,null)}
+  // triple bottom
+  if(!has("ihs")&&T(pv,["L","H","L","H","L","H"])){const [b1,n1,b2,n2,b3]=lastN(pv,6),lo=Math.min(b1.p,b2.p,b3.p),hi=Math.max(b1.p,b2.p,b3.p),nk=Math.max(n1.p,n2.p),h=nk-hi;
+    if(hi-lo<=Math.max(0.8*A,0.015*nk)&&h>=2.5*A&&up(nk))add("tb","삼중 바닥 넥라인 돌파","삼중 천장 넥라인 이탈","차트","rev","done",2,`비슷한 ${mir?"고점":"저점"} 세 번 (${F(b1.p)}·${F(b2.p)}·${F(b3.p)}) 뒤 넥라인 ${F(nk)} ${mir?"이탈":"돌파"}`,lo-0.2*A,nk+h)}
+  if(!has("ihs")&&!has("tb")&&T(pv,["L","H","L","H","L"])){const [b1,n1,b2,n2,b3]=lastN(pv,5),lo=Math.min(b1.p,b2.p,b3.p),hi=Math.max(b1.p,b2.p,b3.p),nk=Math.max(n1.p,n2.p);
+    if(b3.tent&&hi-lo<=Math.max(0.8*A,0.015*nk)&&nk-hi>=2.5*A&&last>b3.p+0.3*A)add("tb","삼중 바닥 형성 중","삼중 천장 형성 중","차트","rev","form",1,`세 번째 ${mir?"고점":"저점"} ${F(b3.p)}에서 ${mir?"밀리는":"반등"} 중, 넥라인 ${F(nk)}`,lo-0.2*A,null)}
+  // double bottom
+  if(!has("ihs")&&!has("tb")&&T(pv,["L","H","L","H"])){const [b1,n,b2]=lastN(pv,4),h=n.p-Math.max(b1.p,b2.p);
+    if(Math.abs(b1.p-b2.p)<=Math.max(0.6*A,0.012*n.p)&&h>=2.5*A&&b2.i-b1.i>=5&&up(n.p))add("db","쌍바닥 넥라인 돌파","쌍봉 넥라인 이탈","차트","rev","done",2,`${mir?"고점":"저점"} ${F(b1.p)}·${F(b2.p)} 두 번 ${mir?"막힌":"지지한"} 뒤 넥라인 ${F(n.p)} ${mir?"이탈":"돌파"}`,Math.min(b1.p,b2.p)-0.2*A,n.p+h)}
+  if(!has("ihs")&&!has("tb")&&!has("db")&&T(pv,["L","H","L"])){const [b1,n,b2]=lastN(pv,3),h=n.p-Math.max(b1.p,b2.p);
+    if(b2.tent&&Math.abs(b1.p-b2.p)<=Math.max(0.6*A,0.012*n.p)&&h>=2.5*A&&b2.i-b1.i>=5&&last>b2.p+0.3*A&&last<n.p)add("db","쌍바닥 형성 중","쌍봉 형성 중","차트","rev","form",1,`두 번째 ${mir?"고점":"저점"} ${F(b2.p)}에서 ${mir?"밀리는":"반등"} 중, 넥라인 ${F(n.p)}`,Math.min(b1.p,b2.p)-0.2*A,null)}
+  // rounding bottom
+  {const n=Math.min(60,L),y=close.slice(L-n),q=quadFit(y);
+    if(q&&q.a>0&&q.r2>=0.7){const tv=-q.b/(2*q.a),bot=q.f(tv),dep=q.f(0)-bot,rim=Math.max(...y.slice(0,8));
+      if(inR(tv,0.3,0.7)&&dep>=4*A&&q.f(1)-bot>=0.6*dep){
+        if(up(rim))add("rb","원형 바닥 돌파","원형 천장 이탈","차트","rev","done",2,`둥글게 ${mir?"꺾인 천장":"바닥을 다진 뒤"} 왼쪽 가장자리 ${F(rim)} ${mir?"이탈":"돌파"}`,Math.min(...low.slice(-10))-0.2*A,rim+dep);
+        else if(last<rim)add("rb","원형 바닥 형성 중","원형 천장 형성 중","차트","rev","form",1,`둥근 ${mir?"천장":"바닥"} 오른쪽을 ${mir?"내려가는":"올라가는"} 중, ${F(rim)} ${mir?"이탈":"돌파"} 시 확정`,null,null)}}}
+  // diamond bottom
+  if(T(pv,["L","H","L","H","L","H","L","H"])&&pv[pv.length-1].tent){const [l1,h1,l2,h2,l3,h3,l4]=lastN(pv,8),hgt=h2.p-l2.p;
+    if(h2.p>h1.p&&l2.p<l1.p&&h3.p<h2.p&&l3.p>l2.p&&l4.p>l3.p&&hgt>=3*A&&downTrendBefore(l1.i)){const ln=linFit([[h2.i,h2.p],[h3.i,h3.p]]).at(L-1);
+      if(up(ln))add("dmb","다이아몬드 바텀 돌파","다이아몬드 탑 이탈","차트","rev","done",2,`넓어졌다 좁아지는 다이아몬드를 ${mir?"아래로 이탈":"위로 돌파"} (${F(ln)})`,l4.p-0.2*A,ln+hgt)}}
+  // V bottom
+  {let m=L-15;for(let i=Math.max(0,L-15);i<L;i++)if(low[i]<low[m])m=i;
+    if(m>=L-10&&m>=10){let j=m-10;for(let i=m-10;i<m;i++)if(high[i]>high[j])j=i;const drop=high[j]-low[m];
+      if(drop>=6*A&&m-j<=10&&up(low[m]+0.6*drop))add("vb","V자 바닥 반전","V자 천장 반전","차트","rev","done",2,`${F(high[j])}→${F(low[m])} ${mir?"급등":"급락"} 뒤 낙폭의 60% 이상 즉시 ${mir?"반납":"회복"}`,low[m]-0.2*A,high[j])}}
+  // bump and run (bullish twin: steep drop below a falling trend line, then break back above it)
+  if(L>=80){const lead=[];for(let i=L-80;i<L-30;i++)lead.push([i,high[i]]);const ln=linFit(lead);
+    if(ln.m<0){let devLead=0;for(let i=L-80;i<L-30;i++)devLead=Math.max(devLead,ln.at(i)-low[i]);let bump=0;for(let i=L-30;i<L-1;i++)bump=Math.max(bump,ln.at(i)-low[i]);
+      if(bump>=Math.max(3*A,2*devLead)&&up(ln.at(L-1)))add("barr","범프 앤 런 (하락 추세선 돌파)","범프 앤 런 (상승 추세선 이탈)","차트","rev","done",2,`추세선보다 ${mir?"가파르게 오른":"가파르게 빠진"} 범프 뒤 추세선 ${F(ln.at(L-1))} ${mir?"이탈":"돌파"}`,Math.min(...low.slice(-10))-0.2*A,Math.max(...high.slice(L-80,L-30)))}}
+  // cup and handle
+  {const SH=swingIdx(high,3,true);
+   for(const iL of SH.filter(i=>i>=L-50&&i<=L-15)){
     let ib=iL+1;for(let i=iL+1;i<L-2;i++)if(low[i]<low[ib])ib=i;
     const depth=(high[iL]-low[ib])/high[iL];if(depth<0.08||depth>0.4||ib-iL<6)continue;
     let iR=-1;for(let i=ib+1;i<L-2;i++)if(high[i]>=high[iL]*0.97){iR=i;break}
-    if(iR<0)continue;while(iR+1<L-2&&high[iR+1]>=high[iR])iR++;
-    if(iR-ib<5)continue;
-    const nearBottom=low.slice(iL,iR).filter(v=>v<=low[ib]+(high[iL]-low[ib])*0.25).length;if(nearBottom<3)continue;
+    if(iR<0)continue;while(iR+1<L-2&&high[iR+1]>=high[iR])iR++;if(iR-ib<5)continue;
+    if(low.slice(iL,iR).filter(v=>v<=low[ib]+(high[iL]-low[ib])*0.25).length<3)continue;
     const rim=Math.max(high[iL],high[iR]);
-    if(iR<=L-3){const hmin=min(low.slice(iR+1,L)),hd=(high[iR]-hmin)/(high[iR]-low[ib]);
-      if(hd>=0.08&&hd<=0.5){if(last>rim)out.push({nm:"컵앤핸들 돌파",sc:3,ds:`깊이 ${pct(depth)} 컵 뒤 손잡이를 만들고 림(${fmt(rim)}) 위로 돌파`});
-        else if(last>hmin&&last>rim*0.95)out.push({nm:"컵앤핸들 형성 중",sc:1,ds:`손잡이 구간, 림 ${fmt(rim)} 돌파 시 매수 신호`});break}}
-  }
-  // 8. 헤드앤숄더 / 역헤드앤숄더
-  {const hs=SH.filter(i=>i>=L-50);
-   for(let k=hs.length-3;k>=0&&k>=hs.length-5;k--){const [a,b,d]=[hs[k],hs[k+1],hs[k+2]];
-     if(d<L-18)break;
-     if(high[b]>high[a]*1.02&&high[b]>high[d]*1.02&&Math.abs(high[a]-high[d])/high[b]<=0.04&&b-a>=3&&d-b>=3){
-       const neck=(min(low.slice(a,b+1))+min(low.slice(b,d+1)))/2;
-       if(last<neck)out.push({nm:"헤드앤숄더 넥라인 이탈",sc:-3,ds:`머리 ${fmt(high[b])}, 넥라인 ${fmt(neck)} 아래로 마감`});
-       else if(last<high[d]&&ma7[L-1]!=null&&last<ma7[L-1])out.push({nm:"헤드앤숄더 형성 중",sc:-1,ds:`오른쪽 어깨에서 밀리는 중, 넥라인 ${fmt(neck)}`});
-       break}}
-   const ls=SLw.filter(i=>i>=L-50);
-   for(let k=ls.length-3;k>=0&&k>=ls.length-5;k--){const [a,b,d]=[ls[k],ls[k+1],ls[k+2]];
-     if(d<L-18)break;
-     if(low[b]<low[a]*0.98&&low[b]<low[d]*0.98&&Math.abs(low[a]-low[d])/low[b]<=0.04&&b-a>=3&&d-b>=3){
-       const neck=(max(high.slice(a,b+1))+max(high.slice(b,d+1)))/2;
-       if(last>neck)out.push({nm:"역헤드앤숄더 넥라인 돌파",sc:3,ds:`머리 ${fmt(low[b])}, 넥라인 ${fmt(neck)} 위로 마감`});
-       else if(last>low[d]&&ma7[L-1]!=null&&last>ma7[L-1])out.push({nm:"역헤드앤숄더 형성 중",sc:1,ds:`오른쪽 어깨에서 반등 중, 넥라인 ${fmt(neck)}`});
-       break}}}
-  // 9. 삼각수렴 · 쐐기 (최근 30개 캔들의 고점·저점 추세선)
-  {const W=30,hs=SH.filter(i=>i>=L-W),ls=SLw.filter(i=>i>=L-W);
-   if(hs.length>=2&&ls.length>=2){
-     const h1=hs[0],h2=hs[hs.length-1],l1=ls[0],l2=ls[ls.length-1];
-     const dH=high[h2]-high[h1],dL=low[l2]-low[l1],th=0.6*atr;
-     const lineAt=(i1,v1,i2,v2,i)=>v1+(v2-v1)*(i-i1)/((i2-i1)||1);
-     const up=lineAt(h1,high[h1],h2,high[h2],L-1),dn=lineAt(l1,low[l1],l2,low[l2],L-1);
-     const conv=(up-dn)<(Math.max(high[h1],high[h2])-Math.min(low[l1],low[l2]))*0.8&&up>dn;
-     const fH=Math.abs(dH)<th,fL=Math.abs(dL)<th,rH=dH>th,rL=dL>th,dHn=dH<-th,dLn=dL<-th;
-     if(conv){
-       if(fH&&rL){const top=Math.max(high[h1],high[h2]);out.push(last>top?{nm:"상승삼각형 돌파",sc:2,ds:`수평 저항 ${fmt(top)} 돌파, 저점은 계속 높아짐`}:{nm:"상승삼각형 형성 중",sc:1,ds:`저점이 높아지며 ${fmt(top)} 저항을 두드리는 중`})}
-       else if(fL&&dHn){const bot=Math.min(low[l1],low[l2]);out.push(last<bot?{nm:"하락삼각형 이탈",sc:-2,ds:`수평 지지 ${fmt(bot)} 이탈, 고점은 계속 낮아짐`}:{nm:"하락삼각형 형성 중",sc:-1,ds:`고점이 낮아지며 ${fmt(bot)} 지지를 누르는 중`})}
-       else if(dHn&&rL){if(last>up)out.push({nm:"대칭삼각형 상단 돌파",sc:2,ds:`수렴 끝에서 위로 이탈 (${fmt(up)})`});else if(last<dn)out.push({nm:"대칭삼각형 하단 이탈",sc:-2,ds:`수렴 끝에서 아래로 이탈 (${fmt(dn)})`})}
-       else if(rH&&rL&&dL>dH){out.push(last<dn?{nm:"상승쐐기 하단 이탈",sc:-2,ds:"올라가며 좁아지던 쐐기 아래로 이탈"}:{nm:"상승쐐기 형성 중",sc:-1,ds:"상승 폭이 줄어들며 좁아지는 중 (힘 빠짐)"})}
-       else if(dHn&&dLn&&dH<dL){out.push(last>up?{nm:"하락쐐기 상단 돌파",sc:2,ds:"내려가며 좁아지던 쐐기 위로 돌파"}:{nm:"하락쐐기 형성 중",sc:1,ds:"하락 폭이 줄어들며 좁아지는 중 (매도세 약화)"})}
-     }}}
-  // 10. 깃발 (강한 깃대 뒤 짧은 조정)
-  if(!has("횡보")){
-    for(let e=L-4;e>=L-16&&e>=8;e--){
-      let best=null;for(let s0=e-8;s0<e;s0++){if(s0<0)continue;const mv=close[e]-close[s0];if(!best||Math.abs(mv)>Math.abs(best.mv))best={s0,mv}}
-      if(!best||Math.abs(best.mv)<4*atr)continue;
-      const seg=c.slice(e+1,L-1);if(seg.length<3)continue;
-      const fh=max(seg.map(x=>x.high)),fl=min(seg.map(x=>x.low)),pole=Math.abs(best.mv);
-      if(fh-fl>0.6*pole)continue;
-      if(best.mv>0&&close[e]-fl<=0.5*pole){out.push(last>fh?{nm:"불플래그 돌파",sc:2,ds:`급등 깃대 뒤 짧은 조정을 위로 돌파 (${fmt(fh)})`}:{nm:"불플래그 형성 중",sc:1,ds:`급등 뒤 얕게 쉬는 중, ${fmt(fh)} 돌파 시 추가 상승`});break}
-      if(best.mv<0&&fh-close[e]<=0.5*pole){out.push(last<fl?{nm:"베어플래그 이탈",sc:-2,ds:`급락 깃대 뒤 반등 구간을 아래로 이탈 (${fmt(fl)})`}:{nm:"베어플래그 형성 중",sc:-1,ds:`급락 뒤 약하게 반등 중, ${fmt(fl)} 이탈 시 추가 하락`});break}
+    if(iR<=L-3){const hmin=Math.min(...low.slice(iR+1,L)),hd=(high[iR]-hmin)/(high[iR]-low[ib]);
+      if(hd>=0.08&&hd<=0.5){if(up(rim))add("cup","컵앤핸들 돌파","역컵앤핸들 이탈","차트","cont","done",3,`깊이 ${pct(depth)} 컵과 손잡이 뒤 림 ${F(rim)} ${mir?"이탈":"돌파"}`,hmin-0.2*A,rim+(rim-low[ib]));
+        else if(last>hmin&&last<=rim&&last>rim-0.5*(rim-low[ib]))add("cup","컵앤핸들 형성 중","역컵앤핸들 형성 중","차트","cont","form",1,`손잡이 구간, 림 ${F(rim)} ${mir?"이탈":"돌파"} 시 확정`,hmin-0.2*A,null);break}}}}
+  // bull flag / bull pennant
+  {let pk=null;for(let e=L-4;e>=L-16&&e>=8;e--)for(let s0=e-8;s0<e;s0++){if(s0<0)continue;const mv=close[e]-close[s0];if(mv>0&&(!pk||mv>pk.mv))pk={e,s0,mv}}
+   for(const e of pk?[pk.e]:[]){const best=pk;
+    if(best.mv<4*A)continue;
+    const seg=c.slice(e+1,L-1);if(seg.length<3)continue;
+    const fh=Math.max(...seg.map(x=>x.high)),fl=Math.min(...seg.map(x=>x.low)),pole=best.mv;
+    if(fh-fl>0.6*pole||close[e]-fl>0.5*pole)continue;
+    const h1=seg.slice(0,Math.ceil(seg.length/2)),h2=seg.slice(Math.ceil(seg.length/2));
+    const pen=h2.length>=2&&Math.max(...h2.map(x=>x.high))<Math.max(...h1.map(x=>x.high))-0.1*A&&Math.min(...h2.map(x=>x.low))>Math.min(...h1.map(x=>x.low))+0.1*A;
+    const [id,nB,nS]=pen?["pen","상승 페넌트","하락 페넌트"]:["flag","불플래그","베어플래그"];
+    if(up(fh))add(id,nB+" 돌파",nS+" 이탈","차트","cont","done",2,`${mir?"급락":"급등"} 깃대 뒤 ${pen?"좁아지는 삼각 조정":"짧은 평행 조정"}을 ${mir?"아래로 이탈":"위로 돌파"} (${F(fh)})`,fl-0.2*A,fh+pole);
+    else if(last<=fh)add(id,nB+" 형성 중",nS+" 형성 중","차트","cont","form",1,`${mir?"급락 뒤 약하게 반등":"급등 뒤 얕게 쉬는"} 중, ${F(fh)} ${mir?"이탈":"돌파"} 시 확정`,fl-0.2*A,null);
     }}
-  // 11. 매집 / 분산 (와이코프식: 추세 뒤 박스권 + 스프링/업스러스트 + 거래량 편향)
-  if(L>=50&&!has("횡보")){
-    const R=25,rs=L-R,rh=max(high.slice(rs)),rl=min(low.slice(rs));
-    if(rh-rl<=0.55*totR){
-      const prior=avg(close.slice(L-50,rs));
-      let upV=0,dnV=0;for(let i=rs;i<L;i++){if(close[i]>=open[i])upV+=vol[i];else dnV+=vol[i]}
-      const coreL=[...low.slice(rs)].sort((a,b)=>a-b)[2],coreH=[...high.slice(rs)].sort((a,b)=>b-a)[2];
-      let spring=false,upthrust=false;for(let i=rs;i<L;i++){if(low[i]<coreL-0.3*atr&&close[i]>coreL)spring=true;if(high[i]>coreH+0.3*atr&&close[i]<coreH)upthrust=true}
-      if(false&&prior>rh&&(spring||upV>1.2*dnV))out.push({nm:"매집 구간",sc:2,ds:`하락 뒤 ${R}개 캔들 박스권${spring?", 하단 이탈 후 회복(스프링)":""}${upV>1.2*dnV?", 양봉 거래량 우세":""}`});
-      else if(prior<rl&&(upthrust||dnV>1.2*upV))out.push({nm:"분산 구간",sc:-2,ds:`상승 뒤 ${R}개 캔들 박스권${upthrust?", 상단 돌파 실패(업스러스트)":""}${dnV>1.2*upV?", 음봉 거래량 우세":""}`});
-    }}
+  // bull rectangle
+  for(const N of [15,20,30]){if(L-N-20<0)break;const box=c.slice(L-1-N,L-1),bh=Math.max(...box.map(x=>x.high)),bl=Math.min(...box.map(x=>x.low)),H=bh-bl;
+    if(H<2*A||H>6*A)continue;const tT=box.filter(x=>x.high>=bh-0.3*A).length,tB=box.filter(x=>x.low<=bl+0.3*A).length;
+    if(tT<2||tB<2||bl-close[L-1-N-15]<2*A)continue;
+    if(up(bh))add("rect","상승 직사각형 돌파","하락 직사각형 이탈","차트","cont","done",2,`${mir?"하락":"상승"} 뒤 ${N}캔들 직사각형 박스를 추세 방향으로 ${mir?"이탈":"돌파"} (${F(bh)})`,bl-0.2*A,bh+H);
+    else if(last<=bh&&last<=bl+0.3*H)add("rect","상승 직사각형 (박스 하단)","하락 직사각형 (박스 상단)","차트","cont","form",1,`${mir?"하락":"상승"} 추세 중 쉬는 박스의 ${mir?"상단":"하단"} 근처`,bl-0.2*A,null);
+    break}
+  // measured move
+  if(T(pv,["L","H","L","H"])){const [a,b,cc]=lastN(pv,4),leg=b.p-a.p,rt=(b.p-cc.p)/leg;
+    if(leg>=4*A&&inR(rt,0.3,0.66)&&up(b.p))add("mm","측정 이동 2번째 다리 시작","하락 측정 이동 2번째 다리 시작","차트","cont","done",2,`1번째 다리 ${F(a.p)}→${F(b.p)}, ${(rt*100).toFixed(0)}% 조정 뒤 고점 ${mir?"이탈":"돌파"} · 같은 길이만큼 기대`,cc.p-0.2*A,cc.p+leg)}
+  /* ===== Wyckoff re-accumulation (mirror: re-distribution) ===== */
+  if(L>=75){const box=c.slice(L-31,L-1),bh=Math.max(...box.map(x=>x.high)),core=[...box.map(x=>x.low)].sort((a,b)=>a-b)[2],H=bh-core,prior=Math.min(...close.slice(L-75,L-35));
+    if(core-prior>=6*A&&H>=2.5*A&&H<=8*A){
+      if(up(bh))add("wyr","와이코프 재축적 돌파 (SOS)","와이코프 재분배 이탈 (SOW)","와이코프","cont","done",2,`${mir?"하락":"상승"} 뒤 쉬어가는 박스를 ${mir?"아래로 이탈":"위로 돌파"} (${F(bh)})`,core-0.2*A,bh+2*H);
+      else{let sp=-1;for(let j=L-6;j<L;j++)if(low[j]<core-0.2*A&&close[j]>core)sp=j;
+        if(sp>=0&&last>core)add("wyr","와이코프 재축적 스프링","와이코프 재분배 업스러스트 (UTAD)","와이코프","cont","form",1,`박스 ${mir?"상단":"하단"} ${F(core)}을 잠깐 깼다가 회복`,low[sp]-0.2*A,null)}}}
+  /* Wyckoff distribution = accumulation found on mirrored candles (accumulation itself has its own section) */
+  if(mir&&L>=60){const w=wyckoff(c);
+    if(w){const nm={C:["와이코프 분배 C (UTAD)",-1,"form"],D:["와이코프 분배 D (SOW 이탈)",-2,"done"],E:["와이코프 분배 E (마크다운)",-1,"form"]}[w.phase];
+      if(nm)add("wyd","",nm[0],"와이코프","rev",nm[2],-nm[1],`분배 범위 ${F(w.top)}~${F(w.bottom)}${w.phase==="D"?" · 범위 하단 아래로 밀림":""}`,w.bottom+0.5*w.H,w.phase==="D"?w.top+w.H:null)}}
+  /* ===== harmonic (D = low) ===== */
+  {const q=atLow(pv,["L","H","L","H","L"]);
+    if(q){const [X,Ap,B,C,D]=q,XA=Ap.p-X.p;
+      if(XA>=3*A&&D.i>=L-6){const r={ab:(Ap.p-B.p)/XA,bc:(C.p-B.p)/(Ap.p-B.p),cd:(C.p-D.p)/(C.p-B.p),ad:(Ap.p-D.p)/XA,xc:(C.p-X.p)/XA,cdx:(C.p-D.p)/(C.p-X.p)};
+        const hit=HARM.find(([,,d])=>Object.entries(d).every(([key,[a,b]])=>isFinite(r[key])&&inR(r[key],a*0.97,b*1.03)));
+        if(hit){const [id,nm]=hit,tgt=D.p+0.618*(Ap.p-D.p),done=revUp(D);
+          add("h_"+id,`상승 ${nm} ${done?"완성 (PRZ 반전)":"PRZ 도달"}`,`하락 ${nm} ${done?"완성 (PRZ 반전)":"PRZ 도달"}`,"하모닉","rev",done?"done":"form",done?2:1,`X ${F(X.p)} · A ${F(Ap.p)} · B ${F(B.p)} · C ${F(C.p)} · D ${F(D.p)} · XA 되돌림 ${(r.ad*100).toFixed(0)}%${done?"":" · 반전 캔들 확인 대기"}`,D.p-Math.max(0.5*A,0.05*XA),tgt)}}}}
+  {const q=atLow(pv,["H","L","H","L"]);
+    if(q&&!out.some(e=>e.grp==="하모닉")){const [Ap,B,C,D]=q,AB=Ap.p-B.p,bc=(C.p-B.p)/AB,cdab=(C.p-D.p)/AB;
+      if(AB>=3*A&&D.i>=L-6&&inR(bc,.382,.886)&&inR(cdab,.9,1.15)){const done=revUp(D);
+        add("h_abcd",`상승 AB=CD ${done?"완성":"도달"}`,`하락 AB=CD ${done?"완성":"도달"}`,"하모닉","rev",done?"done":"form",done?2:1,`AB와 CD 길이가 같아지는 자리 (${(cdab*100).toFixed(0)}%) · D ${F(D.p)}`,D.p-0.5*A,D.p+0.618*(Ap.p-D.p))}}}
+  {const q=atLow(pv,["H","L","H","L","H","L"]);
+    if(q){const [h0,l1,h1,l2,h2,l3]=q,c1=(h1.p-l1.p)/(h0.p-l1.p),d2=(h1.p-l2.p)/(h1.p-l1.p),c2=(h2.p-l2.p)/(h1.p-l2.p),d3=(h2.p-l3.p)/(h2.p-l2.p);
+      if(l2.p<l1.p&&l3.p<l2.p&&inR(c1,.55,.85)&&inR(c2,.55,.85)&&inR(d2,1.2,1.7)&&inR(d3,1.2,1.7)&&l3.i>=L-6){const done=revUp(l3);
+        add("h_3dr",`상승 쓰리 드라이브 ${done?"완성":"3번째 도달"}`,`하락 쓰리 드라이브 ${done?"완성":"3번째 도달"}`,"하모닉","rev",done?"done":"form",done?2:1,`${mir?"고점":"저점"}을 세 번 비슷한 비율로 ${mir?"높인":"낮춘"} 뒤 반전`,l3.p-0.5*A,l3.p+0.618*(h0.p-l3.p))}}}
+  /* ===== Elliott (finer pivots) ===== */
+  if(T(pv2,["L","H","L","H"])){const [p0,p1,p2]=lastN(pv2,4),w1=p1.p-p0.p,r=(p1.p-p2.p)/w1;
+    if(w1>=3*A&&inR(r,.38,.886)&&p2.p>p0.p&&up(p1.p))add("ew3","엘리엇 3파 시작 (1파 고점 돌파)","엘리엇 하락 3파 시작 (1파 저점 이탈)","엘리엇","cont","done",2,`1파 ${F(p0.p)}→${F(p1.p)}, 2파 ${(r*100).toFixed(0)}% 되돌림 뒤 1파 ${mir?"저점 이탈":"고점 돌파"}`,p2.p-0.2*A,p2.p+1.618*w1)}
+  if(T(pv2,["L","H","L","H","L","H","L"])){const [p0,p1,p2,p3,p4,p5,p6]=lastN(pv2,7),w1=p1.p-p0.p,w3=p3.p-p2.p,w5=p5.p-p4.p;
+    const base=p2.p>p0.p&&p3.p>p1.p&&p5.p>p3.p&&w1>=2*A;
+    if(base&&p4.p>p1.p&&w3>=Math.min(w1,w5)&&dn(p4.p))add("ew5","엘리엇 5파 완성 후 하락 전환","엘리엇 하락 5파 완성 후 반등 전환","엘리엇","rev","done",-2,`${mir?"하락":"상승"} 5파가 끝나고 4파 ${mir?"고점":"저점"} ${F(p4.p)} ${mir?"돌파":"이탈"}`,p5.p+0.2*A,p0.p+0.618*(p5.p-p0.p));
+    else if(base&&p4.p<p1.p&&w3<w1&&w5<w3&&upTrendBefore(p0.i)&&dn(p4.p))add("ed","엔딩 다이아고날 하단 이탈","엔딩 다이아고날 상단 돌파","엘리엇","rev","done",-2,`겹치며 좁아지는 5파 쐐기 끝에서 4파 ${F(p4.p)} ${mir?"돌파":"이탈"}`,p5.p+0.2*A,p0.p);
+    else if(base&&p4.p<p1.p&&w3<w1&&w5<w3&&downTrendBefore(p0.i)&&inR((p5.p-p6.p)/(p5.p-p0.p),.5,.886)&&revUp(p6))add("ld","리딩 다이아고날 뒤 2파 조정 완료","하락 리딩 다이아고날 뒤 2파 반등 완료","엘리엇","rev","done",2,`추세 첫 파동이 쐐기형(리딩 다이아고날), 2파 ${(((p5.p-p6.p)/(p5.p-p0.p))*100).toFixed(0)}% 되돌림 뒤 반전`,p6.p-0.2*A,p6.p+1.618*(p5.p-p0.p))}
+  {const q=atLow(pv2,["H","L","H","L"]);
+    if(q){const [p0,pa,pb,pc]=q,Aw=p0.p-pa.p,Bv=(pb.p-pa.p)/Aw,Cv=(pb.p-pc.p)/Aw;
+      if(Aw>=2*A&&upTrendBefore(p0.i)&&revUp(pc)){
+        const t=inR(Bv,.9,1.05)&&inR(Cv,1,1.15)?["rflat","일반 플랫 조정 완료"]:inR(Bv,1.05,1.38)&&inR(Cv,.6,.95)?["runflat","러닝 플랫 조정 완료"]:inR(Bv,1.05,1.38)&&inR(Cv,1.38,1.8)?["xflat","확장 플랫 조정 완료"]:inR(Bv,.382,.786)&&inR(Cv,1,1.618)&&pc.p<pa.p?["zz","지그재그(ABC) 조정 완료"]:null;
+        if(t)add(t[0],t[1]+" · 상승 재개",t[1].replace("조정","반등")+" · 하락 재개","엘리엇","cont","done",2,`${mir?"하락":"상승"} 추세 중 A ${F(pa.p)} · B ${F(pb.p)} · C ${F(pc.p)} 조정이 끝나고 반전`,pc.p-0.3*A,p0.p+0.618*Aw)}}}
+  if(T(pv2,["H","L","H","L","H","L","H"])&&pv2[pv2.length-1].tent){const [p0,pA,pB,pC,pD,pE]=lastN(pv2,7);
+    if(upTrendBefore(p0.i)){const ln=linFit([[pB.i,pB.p],[pD.i,pD.p]]).at(L-1);
+      const t=Math.abs(pB.p-pD.p)<=0.5*A&&pC.p>pA.p&&pE.p>pC.p?["btri","장벽 삼각파동 돌파"]:p0.p>pB.p&&pB.p>pD.p&&pA.p<pC.p&&pC.p<pE.p?["ctri","수축 삼각파동 돌파"]:p0.p<pB.p&&pB.p<pD.p&&pA.p>pC.p&&pC.p>pE.p?["etri","확산 삼각파동 돌파"]:null;
+      if(t&&up(t[0]==="etri"?pD.p:ln))add(t[0],t[1]+" (5파 기대)",t[1].replace("돌파","이탈")+" (하락 5파 기대)","엘리엇","cont","done",2,`4파 자리의 ABCDE 삼각 조정 뒤 추세 방향 ${mir?"이탈":"돌파"}`,pE.p-0.2*A,ln+(p0.p-pA.p))}}
+  {const win=pv2.filter(p=>p.i>=L-90);let st=null;win.forEach(p=>{if(p.t==="H"&&(!st||p.p>st.p))st=p});
+    if(st&&upTrendBefore(st.i)){let after=pv2.filter(p=>p.i>st.i);if(after.length>=2&&after[after.length-1].tent&&after[after.length-1].t==="H"&&after[after.length-2].i>=L-5)after=after.slice(0,-1);const n=after.length,lw=after[n-1];
+      if((n===7||n===11)&&lw&&lw.t==="L"){const mn=Math.min(...after.filter(p=>p.t==="L").map(p=>p.p)),rise=st.p-Math.min(...close.slice(Math.max(0,st.i-30),st.i+1)),rt=(st.p-mn)/rise;
+        if(rise>0&&inR(rt,.3,.79)&&revUp(lw))add(n===7?"wxy":"wxyxz",n===7?"W-X-Y 복합 조정 완료":"W-X-Y-X-Z 삼중 복합 조정 완료",n===7?"W-X-Y 복합 반등 완료":"W-X-Y-X-Z 삼중 복합 반등 완료","엘리엇","cont","done",2,`고점 ${F(st.p)} 뒤 ${n}개 다리로 겹치며 ${(rt*100).toFixed(0)}% ${mir?"반등":"조정"}, 끝에서 반전`,mn-0.2*A,st.p)}}}
+  /* ===== candles ===== */
+  {const cd=i=>{const x=c[i],b=Math.abs(x.close-x.open),r=Math.max(x.high-x.low,1e-12);return {x,b,r,up:x.high-Math.max(x.open,x.close),dn:Math.min(x.open,x.close)-x.low,bull:x.close>x.open,bear:x.close<x.open,mid:(x.open+x.close)/2}};
+   const K=cd(L-1),P=cd(L-2),Q=cd(L-3),ab=avg(c.slice(-11,-1).map(x=>Math.abs(x.close-x.open)))||0.5*A;
+   const downB=close[L-2]<close[Math.max(0,L-7)]-0.5*A;
+   const cA=(id,nm,nmM,sc,ds)=>add("c_"+id,nm,nmM,"캔들","cdl","candle",sc,ds,null,null);
+   const isDoji=z=>z.b<=0.1*z.r;
+   if(downB&&!isDoji(K)&&K.dn>=2*K.b&&K.up<=0.15*K.r)cA("ham","망치형 (해머)","유성형 (슈팅스타)",1,mir?"오른 끝에서 윗꼬리가 긴 캔들 (매도세 출현)":"내린 끝에서 아래꼬리가 긴 캔들 (매수세 유입)");
+   if(downB&&!isDoji(K)&&K.up>=2*K.b&&K.dn<=0.15*K.r)cA("iham","역망치형","교수형 (행잉맨)",1,mir?"오른 끝에서 아래꼬리가 긴 캔들 (경고)":"내린 끝에서 윗꼬리가 긴 캔들 (반등 시도)");
+   if(downB&&isDoji(K)&&K.dn>=0.7*K.r)cA("dfly","드래곤플라이 도지","비석 도지",1,mir?"위로 찔렀다가 시가로 밀린 도지":"아래로 찔렀다가 시가로 회복한 도지");
+   if(K.bull&&K.b>=0.9*K.r&&K.b>=1.5*ab)cA("maru","장대양봉 (마루보즈)","장대음봉 (마루보즈)",1,"꼬리가 거의 없는 긴 몸통");
+   if(downB&&P.bear&&K.bull&&K.x.close>=P.x.open&&K.x.open<=P.x.close&&K.b>P.b)cA("eng","상승 장악형","하락 장악형",2,"직전 캔들 몸통을 완전히 감싸는 반대 캔들");
+   if(downB&&P.bear&&P.b>=ab&&K.b<=0.5*P.b&&Math.max(K.x.open,K.x.close)<=P.x.open&&Math.min(K.x.open,K.x.close)>=P.x.close)isDoji(K)?cA("hcross","하라미 크로스 (상승)","하라미 크로스 (하락)",1,"큰 캔들 몸통 안에 도지"):cA("har","상승 잉태형 (하라미)","하락 잉태형 (하라미)",1,"큰 캔들 몸통 안에 작은 반대 캔들");
+   if(Q.bear&&Q.b>=ab&&P.b<=0.3*Q.b&&Math.max(P.x.open,P.x.close)<=Q.x.close+0.1*A&&K.bull&&K.x.close>=Q.mid){
+     if(isDoji(P)&&P.x.high<Q.x.low&&P.x.high<K.x.low)cA("aban","버려진 아기형 (상승)","버려진 아기형 (하락)",2,"갭으로 떨어진 도지 뒤 반대 방향 갭");
+     else isDoji(P)?cA("mds","모닝 도지 스타","이브닝 도지 스타",2,"큰 캔들 · 도지 · 반대 큰 캔들 3개 반전"):cA("ms","샛별형 (모닝스타)","석양형 (이브닝스타)",2,"큰 캔들 · 작은 별 · 반대 큰 캔들 3개 반전")}
+   if([K,P,Q].every(z=>z.bull&&z.b>=0.6*ab&&z.up<=0.3*z.b)&&K.x.close>P.x.close&&P.x.close>Q.x.close&&K.x.open>=P.x.open&&K.x.open<=P.x.close&&P.x.open>=Q.x.open&&P.x.open<=Q.x.close)cA("3s","적삼병","흑삼병",2,"같은 방향 긴 캔들 3개가 계단식으로");
+   if(downB&&P.bear&&P.b>=ab&&K.bull&&K.x.open<=P.x.close&&K.x.close>P.mid&&K.x.close<P.x.open)cA("pier","관통형 (피어싱)","먹구름형 (다크 클라우드)",1,"직전 큰 캔들 몸통의 절반 넘게 되돌림");
+   if(downB&&P.bear&&K.bull&&P.b>=0.5*ab&&K.b>=0.5*ab&&Math.abs(P.x.low-K.x.low)<=0.1*A&&Math.min(P.x.low,K.x.low)<=Math.min(...low.slice(-6))+1e-12)cA("twz","집게 바닥 (트위저)","집게 천장 (트위저)",1,"같은 가격에서 두 번 막힘");
+   if(P.bear&&P.b>=0.6*ab&&K.bull&&K.b>=ab&&K.x.open>=P.x.open)cA("kick","상승 키커","하락 키커",2,"직전 캔들 시가 위에서 반대로 강하게 출발");
+   if(L>=6){const f=cd(L-5),mid=[cd(L-4),cd(L-3),cd(L-2)];
+     if(f.bull&&f.b>=1.2*ab&&mid.every(z=>z.b<=0.6*f.b&&z.x.high<=f.x.high+0.1*A&&z.x.low>=f.x.low-0.1*A)&&mid.filter(z=>z.bear).length>=2&&K.bull&&K.x.close>f.x.close)cA("r3m","상승 삼법형","하락 삼법형",2,"큰 캔들 · 작은 쉼 3개 · 다시 큰 캔들로 추세 지속")}
+   if(Q.bull&&P.bull&&P.x.low>Q.x.high&&K.bear&&K.x.open<P.x.close&&K.x.open>P.x.open&&K.x.close<P.x.open&&K.x.close>Q.x.high)cA("tas","상승 타스키 갭","하락 타스키 갭",1,"갭을 일부만 메운 조정 (추세 지속)");
+   if(downB&&K.bull&&K.dn<=0.05*K.r&&K.b>=0.6*K.r&&K.b>=ab)cA("belt","상승 띠두름형 (벨트 홀드)","하락 띠두름형 (벨트 홀드)",1,"시가가 거의 저가인 긴 양봉");
+   if(Q.bear&&Q.b>=ab&&P.bull&&Math.max(P.x.open,P.x.close)<=Q.x.open&&Math.min(P.x.open,P.x.close)>=Q.x.close&&K.bull&&K.x.close>Q.x.open)cA("3in","상승 안 세 양봉 (Three Inside Up)","하락 안 세 음봉 (Three Inside Down)",2,"잉태형 뒤 확인 캔들");
+   if(Q.bear&&P.bull&&P.x.close>=Q.x.open&&P.x.open<=Q.x.close&&P.b>Q.b&&K.bull&&K.x.close>P.x.close)cA("3out","상승 바깥 세 양봉 (Three Outside Up)","하락 바깥 세 음봉 (Three Outside Down)",2,"장악형 뒤 확인 캔들");
+   if(!mir){const z=K;
+     if(z.x.high-z.x.low<=z.x.close*1e-6)cA("4p","사가 도지 (4가격 도지)","",0,"시가·고가·저가·종가가 모두 같음 (거래 거의 없음)");
+     else if(isDoji(z)&&z.up>=0.35*z.r&&z.dn>=0.35*z.r)cA("lld","다리 긴 도지","",0,"위아래 꼬리가 모두 긴 도지 (큰 망설임)");
+     else if(isDoji(z)&&z.up<0.7*z.r&&z.dn<0.7*z.r)cA("doji","표준 도지","",0,"시가와 종가가 거의 같음 (망설임)");
+     else if(z.b>0.1*z.r&&z.b<=0.3*z.r&&z.up>z.b&&z.dn>z.b)cA("spin","팽이형 (스피닝 탑)","",0,"작은 몸통, 위아래 꼬리 (힘의 균형)")}}
+  return out;
+}
+/* Symmetric structures (triangles, wedges, broadening, channels, box) — detected once on real candles. */
+function structPatterns(c){
+  const L=c.length,out=[];if(L<40)return out;const A=atrW(c),close=c.map(x=>x.close),last=close[L-1];
+  const up=lvl=>last>lvl&&[2,3,4].some(j=>close[L-j]<=lvl),dn=lvl=>last<lvl&&[2,3,4].some(j=>close[L-j]>=lvl);
+  const pv=zigzag(c,1.5*A).filter(p=>!p.tent&&p.i>=L-50),hs=pv.filter(p=>p.t==="H"),ls=pv.filter(p=>p.t==="L");
+  if(hs.length<2||ls.length<2)return out;
+  const fh=linFit(hs.map(p=>[p.i,p.p])),fl=linFit(ls.map(p=>[p.i,p.p])),sH=fh.m/A,sL=fl.m/A,uA=fh.at(L-1),lA=fl.at(L-1),st=Math.min(hs[0].i,ls[0].i),w0=fh.at(st)-fl.at(st),w1=uA-lA;
+  if(!(w0>0&&w1>0))return out;
+  const flat=s=>Math.abs(s)<0.04,par=Math.abs(w1-w0)<=0.25*w0,conv=w1<0.75*w0,div=w1>1.3*w0,pos=(last-lA)/w1;
+  const invU=ls[ls.length-1].p-0.2*A,invD=hs[hs.length-1].p+0.2*A,F=fmt;
+  const E=(id,nm,kind,stage,sc,ds,inv,tgt)=>out.push({id:id+(sc>0?"+":sc<0?"-":""),nm,grp:"차트",kind,stage,sc,dir:Math.sign(sc),ds,inv,tgt});
+  let kd=null;
+  if(conv){if(flat(sH)&&sL>0.04)kd="asc";else if(flat(sL)&&sH<-0.04)kd="desc";else if(sH<-0.04&&sL>0.04)kd="sym";else if(sH>0.04&&sL>sH)kd="rw";else if(sL<-0.04&&sH<sL)kd="fw"}
+  else if(div&&sH>0.02&&sL<-0.02)kd=hs.length>=3&&ls.length>=3?"meg":"brd";
+  else if(par){if(flat(sH)&&flat(sL))kd="box";else if(sH>0.04&&sL>0.04)kd="chu";else if(sH<-0.04&&sL<-0.04)kd="chd"}
+  if(!kd)return out;
+  const U=(id,nm,kind)=>E(id,nm,kind,"done",2,`상단선 ${F(uA)} 위로 마감 · 목표는 패턴 폭만큼`,invU,uA+w0);
+  const D=(id,nm,kind)=>E(id,nm,kind,"done",-2,`하단선 ${F(lA)} 아래로 마감 · 목표는 패턴 폭만큼`,invD,lA-w0);
+  const brU=up(uA),brD=dn(lA);
+  if(kd==="asc"){if(brU)U("asc","상승삼각형 돌파","cont");else if(brD)D("asc","상승삼각형 하단 이탈 (실패)","rev");else E("asc","상승삼각형 형성 중","cont","form",1,`저점이 높아지며 ${F(uA)} 저항을 두드리는 중`,null,null)}
+  if(kd==="desc"){if(brD)D("desc","하락삼각형 이탈","cont");else if(brU)U("desc","하락삼각형 상단 돌파 (실패)","rev");else E("desc","하락삼각형 형성 중","cont","form",-1,`고점이 낮아지며 ${F(lA)} 지지를 누르는 중`,null,null)}
+  if(kd==="sym"){if(brU)U("sym","대칭삼각형 상단 돌파","cont");else if(brD)D("sym","대칭삼각형 하단 이탈","cont");else E("sym","대칭삼각형 수렴 중","neu","form",0,`${F(lA)}~${F(uA)} 사이로 좁아지는 중, 이탈 방향을 기다려요`,null,null)}
+  if(kd==="rw"){if(brD)D("rw","상승쐐기 하단 이탈","rev");else E("rw","상승쐐기 형성 중","rev","form",-1,"오르면서 폭이 좁아지는 중 (상승 힘 약화)",null,null)}
+  if(kd==="fw"){if(brU)U("fw","하락쐐기 상단 돌파","rev");else E("fw","하락쐐기 형성 중","rev","form",1,"내리면서 폭이 좁아지는 중 (매도세 약화)",null,null)}
+  if(kd==="brd"||kd==="meg"){const nm=kd==="meg"?"메가폰":"확산 삼각형";if(brU)U(kd,nm+" 상단 돌파","neu");else if(brD)D(kd,nm+" 하단 이탈","neu");else if(pos>=0.85)E(kd,nm+" 상단 근처 (반락 주의)","neu","form",-1,`고점·저점이 모두 넓어지는 중, 상단선 ${F(uA)}`,null,null);else if(pos<=0.15)E(kd,nm+" 하단 근처 (반등 주의)","neu","form",1,`하단선 ${F(lA)}`,null,null)}
+  if(kd==="box"){if(brU)U("box","수평 박스권 상단 돌파","neu");else if(brD)D("box","수평 박스권 하단 이탈","neu");else if(pos<=0.2)E("box","수평 박스권 하단 지지","neu","form",1,`${F(lA)}~${F(uA)} 박스 하단`,null,null);else if(pos>=0.8)E("box","수평 박스권 상단 저항","neu","form",-1,`${F(lA)}~${F(uA)} 박스 상단`,null,null)}
+  if(kd==="chu"){if(brD)D("chu","상승 채널 하단 이탈","rev");else if(pos<=0.2)E("chu","상승 채널 하단 지지","cont","form",1,`평행 상승 채널 하단선 ${F(lA)}`,null,null);else if(pos>=0.85)E("chu","상승 채널 상단 (추격 주의)","cont","form",0,`채널 상단선 ${F(uA)}`,null,null)}
+  if(kd==="chd"){if(brU)U("chd","하락 채널 상단 돌파","rev");else if(pos>=0.8)E("chd","하락 채널 상단 저항","cont","form",-1,`평행 하락 채널 상단선 ${F(uA)}`,null,null);else if(pos<=0.15)E("chd","하락 채널 하단 (추격 주의)","cont","form",0,`채널 하단선 ${F(lA)}`,null,null)}
   return out;
 }
 
@@ -706,7 +869,7 @@ function regimeSeries(c){
 function isChop(S,i){const a=S.adx[i],c=S.ci[i];if(a==null||c==null)return false;return a<18||c>61.8}
 const MAXSL={"15m":2.5,"4h":6,"1D":15};
 const CONFIRM={"15m":2,"4h":1,"1D":1};
-function dayPatsFor(pats){return tf==="15m"?pats.filter(p=>Math.abs(p.sc)>=2):pats}
+function dayPatsFor(pats){pats=pats.filter(p=>p.grp!=="캔들");return tf==="15m"?pats.filter(p=>Math.abs(p.sc)>=2):pats}
 function indicatorsAt(S,i){
   const ind=[],last=S.close[i];
   {const x=crossedRecently(S.ma7,S.ma28,3,i),f=S.ma7[i],s=S.ma28[i];let sc=0,txt;
@@ -756,66 +919,164 @@ function makeBias(c,h,tfK,htfK){
 /* Daily context for a candle: patterns and Wyckoff on daily candles already CLOSED when that candle closes. */
 function dayIdx(day,endT){let lo=0,hi=day.length-1,ans=-1;while(lo<=hi){const m=(lo+hi)>>1;if(day[m].t+864e5<=endT){ans=m;lo=m+1}else hi=m-1}return ans}
 function dayCtx(day,k,memo){if(!day||k<0)return null;const key=day[k].t;if(memo&&memo.has(key))return memo.get(key);
-  const sub=day.slice(0,k+1),v={pats:detectPatterns(sub.slice(-50)),wi:wyInfo(wyckoff(sub))};if(memo)memo.set(key,v);return v}
+  const sub=day.slice(0,k+1),v={pats:detectPatterns(sub.slice(-120)).filter(p=>p.grp!=="캔들"),wi:wyInfo(wyckoff(sub))};if(memo)memo.set(key,v);return v}
 function wyComb(a,b){if(!a&&!b)return 0;return Math.max(a?a.sc:-9,b?b.sc:-9)}
 function strongest(list,sign){const f=list.filter(p=>Math.sign(p.sc)===sign).sort((x,y)=>Math.abs(y.sc)-Math.abs(x.sc));return f[0]}
-function candleSignals(S,opt={}){
-  const c=S.candles,L=c.length,out=[],skipped=[];let prevZ=null,lastType=null,closedScore=null,pending=null,liveScore=null,runZ=0,runLen=0,lastSig=null,runFired=true;
-  const need=opt.confirm||1;
-  /* A signal fires when the score has stayed in a zone for `need` closed candles. In a choppy market (low ADX / high
-     choppiness) new signals rest unless the candle is a breakout; flipping soon after a signal needs a stronger score. */
-  const judge=(i,s,z,rl,hitB)=>{
-    if(z===0||rl<need||(rl>need&&runFired))return null;const type=z>0?"B":"S";if(type===lastType)return null;
-    const b=opt.bias?opt.bias(i):0;
-    if(lastSig&&lastSig.type!==type&&i-lastSig.i<=6&&Math.abs(s)<3)return {type,reason:"직전 반대 신호와 너무 가까워 더 강한 신호를 기다려요"};
-    if(opt.filter&&((type==="B"&&b<0)||(type==="S"&&b>0)))return {type,reason:"상위 봉 추세와 반대"};
-    if(opt.chop!==false&&isChop(S,i)&&!hitB)return {type,reason:"횡보장이라 신호를 쉬어요"};
-    return {type,ok:true};
-  };
-  const liveLast=c[L-1].t+(opt.tfMs||0)>(opt.now||Date.now());
-  for(let i=opt.start!=null?opt.start:Math.max(33,L-120);i<L;i++){
-    const dk=opt.day?dayIdx(opt.day,Math.min(c[i].t+(opt.tfMs||0),opt.now||Date.now())):-1,ckey=c[i].t+"|"+(dk>=0?opt.day[dk].t:"x");
-    let hit=opt.cache&&i<L-1?opt.cache.get(ckey):null;
-    if(!hit){const ind=indicatorsAt(S,i),pats=detectPatterns(c.slice(Math.max(0,i-49),i+1)),dc=dayCtx(opt.day,dk,opt.dayMemo);
-      const dp=dc?dayPatsFor(dc.pats):[];
-      const wi=wyInfo(wyckoff(c.slice(Math.max(0,i-199),i+1))),wd=dc&&dc.wi,sc=sum(ind)+capSum(pats)+capSum(dp)+wyComb(wi,wd);
-      const allP=[...pats,...dp.map(p=>({...p,nm:"일봉 "+p.nm}))],topInd=ind.slice().sort((a,b)=>Math.abs(b.sc)-Math.abs(a.sc))[0].txt;
-      const brk=pats.some(p=>Math.abs(p.sc)>=2&&/돌파|이탈|붕괴/.test(p.nm))||!!(wi&&wi.phase==="D");
-      const wB=[wi,wd].filter(w=>w&&w.sc>=2).sort((a,b)=>b.sc-a.sc)[0],wS=[wi,wd].filter(w=>w&&w.sc<0)[0];
-      const pB=strongest(allP,1),pS=strongest(allP,-1);
-      hit={s:sc,brk,whyB:wB?"와이코프 "+wB.nm:pB?pB.nm:topInd,whyS:pS?pS.nm:wS?"와이코프 "+wS.nm:topInd};
-      if(opt.cache&&i<L-1)opt.cache.set(ckey,hit)}
-    const s=hit.s,z=s>=2?1:s<=-2?-1:0;
-    if(prevZ===null){prevZ=z;runZ=z;runLen=need+1;runFired=true;closedScore=s;continue}
-    const rl=z===runZ?runLen+1:1,rf=z===runZ?runFired:false;
-    if(i===L-1&&liveLast){
-      /* The candle still forming only gives a provisional signal; it never moves the confirmed zone or trade log. */
-      liveScore=s;runFired=rf;const jd=judge(i,s,z,rl,hit.brk);
-      if(jd&&(jd.ok||rl===need))pending={i,type:jd.type,price:c[i].close,t:c[i].t,score:s,why:z>0?hit.whyB:hit.whyS,against:!jd.ok,reason:jd.reason,endsAt:c[i].t+(opt.tfMs||0)};
-      continue;
-    }
-    closedScore=s;runZ=z;runLen=rl;runFired=rf;
-    const jd=judge(i,s,z,rl,hit.brk);
-    if(jd){const rec={i,type:jd.type,price:c[i].close,t:c[i].t,score:s,why:z>0?hit.whyB:hit.whyS};
-      if(jd.ok){out.push(rec);lastType=jd.type;lastSig=rec;runFired=true}else if(rl===need){rec.against=true;rec.reason=jd.reason;skipped.push(rec)}}
-    prevZ=z;
-  }
-  out.zone=prevZ||0;out.skipped=skipped;out.pending=pending;out.chop=isChop(S,liveLast?L-2:L-1);out.adx=S.adx[liveLast?L-2:L-1];out.ci=S.ci[liveLast?L-2:L-1];out.closedScore=closedScore;out.liveScore=liveScore;out.liveLast=liveLast;
-  return out;
+/* ---------- signal engine v2 ----------
+   1) Market state first: up-trend / down-trend / range (EMA20·EMA50, EMA50 slope, ADX).
+   2) Only entries that fit that state become signals:
+      trend → pullback to EMA20 then resume (with the trend only) · any state → 20-candle high/low break on volume
+      range → rejection at the box edge, target the other edge · confirmed pattern breakout / Wyckoff Spring·SOS.
+   3) Every signal carries an invalidation price (chart structure). The signal ends when price touches it,
+      reaches the target, gets replaced by an opposite signal, or runs out of time. After TP1 the stop moves to entry.
+   4) Indicator/pattern/Wyckoff score only sets the strength (buy vs strong buy), never the direction. */
+const EXPIRE={"15m":16,"4h":18,"1D":20};
+const SETUP_NM={brk:"돌파",trd:"추세 전환",pb:"눌림목",rng:"박스 반전",pat:"차트 패턴",harm:"하모닉",ew:"엘리엇",wyp:"와이코프",wy:"와이코프"};
+const END_NM={inv:"무효 · 손절선(무효 가격) 도달",be:"본전 종료 · 목표1 이후 되돌림",tgt:"목표 도달로 종료",exp:"유효기간 종료",opp:"반대 신호로 교체"};
+const END_SHORT={inv:"무효(손절선 도달)",be:"본전 종료",tgt:"목표 도달",exp:"유효기간 만료",opp:"반대 신호"};
+const SETUP_PRI={pat:0,harm:1,ew:2,wyp:3,wy:4,brk:5,trd:6,pb:7,rng:8};
+const GRP_SETUP={"차트":"pat","하모닉":"harm","엘리엇":"ew","와이코프":"wyp"};
+function engSeries(S){
+  if(S._eng)return S._eng;
+  const c=S.candles,L=c.length,e20=ema(S.close,20),e50=ema(S.close,50),atr=Array(L).fill(null);let a=0;
+  for(let i=1;i<L;i++){const tr=Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close));
+    if(i<14)a+=tr;else if(i===14){a=(a+tr)/14;atr[i]=a}else{a=(a*13+tr)/14;atr[i]=a}}
+  const vol=c.map(x=>x.volume||0),vma=sma(vol,20);
+  return S._eng={e20,e50,atr,vol,vma};
 }
-function analyze(candles,dayCandles,htfCandles,cache,dayMemo){
+/* +1 up-trend, −1 down-trend, 0 range/undecided */
+function regimeAt(S,E,i){
+  if(i<5)return 0;const e20=E.e20[i],e50=E.e50[i],p=E.e50[i-5],A=E.atr[i],adx=S.adx[i];
+  if(e50==null||p==null||A==null||adx==null)return 0;
+  const sl=(e50-p)/A,cl=S.close[i];
+  if(e20>e50&&cl>e50&&sl>0.15&&adx>=20)return 1;
+  if(e20<e50&&cl<e50&&sl<-0.15&&adx>=20)return -1;
+  return 0;
+}
+function boxAt(c,i,n=30){const w=c.slice(Math.max(0,i-n),i);if(!w.length)return null;return {hi:Math.max(...w.map(x=>x.high)),lo:Math.min(...w.map(x=>x.low))}}
+function cdlMax(hit,dir,off){let m=0;for(const e of hit.cdl||[])if(e.dir===dir&&!(off&&off.has(e.id)))m=Math.max(m,Math.abs(e.sc));return m}
+function setupsAt(S,E,i,hit,prev,off){
+  hit={...hit,cb:cdlMax(hit,1,off),cs:cdlMax(hit,-1,off)};
+  const c=S.candles,k=c[i],A=E.atr[i];if(A==null||E.e50[i]==null||i<31||!prev)return [];
+  const reg=regimeAt(S,E,i),rng=Math.max(k.high-k.low,1e-12),vr=E.vma[i]?E.vol[i]/E.vma[i]:1.5,cl=k.close,out=[];
+  const clampInv=(dir,v)=>{let d=dir*(cl-v);d=Math.max(0.8*A,Math.min(3*A,d));return cl-dir*d};
+  const lowN=n=>Math.min(...c.slice(i-n,i+1).map(x=>x.low)),highN=n=>Math.max(...c.slice(i-n,i+1).map(x=>x.high));
+  const pre=c.slice(i-20,i),hh=Math.max(...pre.map(x=>x.high)),ll=Math.min(...pre.map(x=>x.low));
+  const upC=(cl-k.low)/rng,dnC=(k.high-cl)/rng;
+  /* confirmed chart pattern / Wyckoff event appearing on this candle */
+  {const seen=new Set((prev.done||[]).map(e=>e.id));
+   for(const e of hit.done||[]){if(seen.has(e.id))continue;const d=e.dir,setup=GRP_SETUP[e.grp]||"pat";
+     const inv=clampInv(d,e.inv!=null&&d*(cl-e.inv)>0?e.inv:(d>0?lowN(5)-0.2*A:highN(5)+0.2*A)),Rr=Math.abs(cl-inv),tg=e.tgt!=null&&d*(e.tgt-cl)>=1.5*Rr&&d*(e.tgt-cl)<=6*Rr?e.tgt:null;
+     out.push({type:d>0?"B":"S",setup,why:e.nm,inv,tgt:tg,pid:e.id,kind:e.kind,psc:Math.abs(e.sc)})}}
+  if((hit.wy==="C"||hit.wy==="D")&&prev.wy!==hit.wy&&cl>k.open)out.push({type:"B",setup:"wy",why:"와이코프 "+(hit.wy==="C"?"스프링 확인(C)":"SOS 돌파(D)"),inv:clampInv(1,(hit.wyStop&&hit.wyStop<cl?hit.wyStop:lowN(10))-0.2*A)});
+  /* 20-candle breakout on volume */
+  if(cl>hh+0.1*A&&upC>=0.6&&rng>=0.8*A&&vr>=1.3)out.push({type:"B",setup:"brk",why:`최근 20캔들 고점 ${fmt(hh)} 돌파 · 거래량 ${vr.toFixed(1)}배`,inv:clampInv(1,hh-0.6*A),vr});
+  if(cl<ll-0.1*A&&dnC>=0.6&&rng>=0.8*A&&vr>=1.3)out.push({type:"S",setup:"brk",why:`최근 20캔들 저점 ${fmt(ll)} 이탈 · 거래량 ${vr.toFixed(1)}배`,inv:clampInv(-1,ll+0.6*A),vr});
+  /* trend start: market state flips into a trend on this candle */
+  {const r0=regimeAt(S,E,i-1);if(reg!==0&&r0!==reg&&(reg>0?cl>k.open:cl<k.open))out.push({type:reg>0?"B":"S",setup:"trd",why:reg>0?`상승 추세 전환 (EMA20 > EMA50, 추세 강도 ${S.adx[i].toFixed(0)})`:`하락 추세 전환 (EMA20 < EMA50, 추세 강도 ${S.adx[i].toFixed(0)})`,inv:clampInv(reg,reg>0?lowN(10)-0.2*A:highN(10)+0.2*A)})}
+  /* trend pullback: touched EMA20 in the last 5 candles, held EMA50, then a candle resumes the trend */
+  if(reg!==0){const d=reg,w=c.slice(i-5,i);
+    const touched=w.some((x,j)=>d>0?x.low<=E.e20[i-5+j]+0.25*A:x.high>=E.e20[i-5+j]-0.25*A);
+    const held=w.every((x,j)=>d>0?x.close>E.e50[i-5+j]-0.3*A:x.close<E.e50[i-5+j]+0.3*A);
+    const p1=c[i-1],trig=d>0?(cl>k.open&&cl>E.e20[i]&&(cl>p1.high||hit.cb>=1)):(cl<k.open&&cl<E.e20[i]&&(cl<p1.low||hit.cs>=1));
+    if(touched&&held&&trig)out.push({type:d>0?"B":"S",setup:"pb",why:d>0?"상승 추세 눌림목 반등 (EMA20 지지 확인)":"하락 추세 되돌림 후 재하락 (EMA20 저항 확인)",inv:clampInv(d,d>0?lowN(5)-0.2*A:highN(5)+0.2*A)})}
+  /* range: rejection candle at the box edge, target the other edge */
+  if(reg===0&&(S.adx[i]==null||S.adx[i]<20)){const b=boxAt(c,i,30),H=b.hi-b.lo,r=S.r[i];
+    if(H>=3*A&&H<=14*A&&r!=null){
+      if(k.low<=b.lo+0.2*H&&cl>b.lo&&cl>k.open&&r<=40&&((upC>=0.6&&cl>c[i-1].high)||hit.cb>=2)){const inv=clampInv(1,Math.min(k.low,b.lo)-0.3*A),tgt=b.hi-0.1*H;
+        if(tgt-cl>=1.2*(cl-inv))out.push({type:"B",setup:"rng",why:`박스 하단 ${fmt(b.lo)} 지지 반등 · 목표 박스 상단`,inv,tgt})}
+      if(k.high>=b.hi-0.2*H&&cl<b.hi&&cl<k.open&&r>=60&&((dnC>=0.6&&cl<c[i-1].low)||hit.cs>=2)){const inv=clampInv(-1,Math.max(k.high,b.hi)+0.3*A),tgt=b.lo+0.1*H;
+        if(cl-tgt>=1.2*(inv-cl))out.push({type:"S",setup:"rng",why:`박스 상단 ${fmt(b.hi)} 저항 반락 · 목표 박스 하단`,inv,tgt})}}}
+  /* Don't chase: a pattern/breakout long that is already stretched far above EMA20 (for a breakout: before the breakout candle) or deep in overbought is skipped
+     (mirror for shorts). In a range, a pattern only counts once price is actually outside the 30-candle box. */
+  const r=S.r[i],ext=(cl-E.e20[i])/A,extP=(c[i-1].close-E.e20[i-1])/A,bx=boxAt(c,i,30);
+  return out.filter(x=>{
+    /* A reversal pattern against the running trend only counts when it is a strong one (head & shoulders class). */
+    if(x.pid&&x.kind==="rev"&&reg===(x.type==="B"?-1:1)&&x.psc<3)return false;
+    /* In a range, a reversal pattern also needs a confirming candle pattern (engulfing, hammer, morning star…). */
+    if(x.pid&&x.kind==="rev"&&reg===0&&x.psc<3&&(x.type==="B"?hit.cb:hit.cs)<1)return false;
+    if(x.setup==="harm"||!["pat","ew","wyp","brk","trd"].includes(x.setup))return true;const d=x.type==="B"?1:-1,cont=x.kind==="cont"||x.kind==="neu";
+    if(x.setup==="brk"){if(d*extP>2)return false}else if(d*ext>(x.setup==="trd"?3:2.5))return false;
+    if(r!=null&&(d>0?r>=(x.setup==="brk"?80:x.setup==="trd"?78:72):r<=(x.setup==="brk"?20:x.setup==="trd"?22:28)))return false;
+    if(x.pid&&cont&&reg===0&&bx&&(d>0?cl<=bx.hi:cl>=bx.lo))return false;if(x.pid&&cont&&reg===-d)return false;return true}).map(x=>({...x,reg}));
+}
+function pickSetup(list){
+  if(!list.length)return null;
+  const by=t=>list.filter(x=>x.type===t).sort((a,b)=>SETUP_PRI[a.setup]-SETUP_PRI[b.setup]),B=by("B"),Sx=by("S");
+  if(B.length&&Sx.length)return null;const g=B.length?B:Sx;
+  return {...g[0],why:g.map(x=>x.why).filter((v,k,a)=>v&&a.indexOf(v)===k).join(" + ")};
+}
+function candleSignals(S,opt={}){
+  const c=S.candles,L=c.length,E=engSeries(S),out=[],skipped=[],EXP=EXPIRE[opt.tf||tf]||18,cool={},hits=[];
+  let act=null,pending=null,closedScore=null,liveScore=null,prevHit=null;
+  const liveLast=c[L-1].t+(opt.tfMs||0)>(opt.now||Date.now());
+  const hitAt=(i,live)=>{
+    const dk=opt.day?dayIdx(opt.day,Math.min(c[i].t+(opt.tfMs||0),opt.now||Date.now())):-1,ckey=c[i].t+"|"+(dk>=0?opt.day[dk].t:"x");
+    let hit=opt.cache&&!live?opt.cache.get(ckey):null;if(hit&&hit.v===3)return hit;
+    const ind=indicatorsAt(S,i),all=detectPatterns(c.slice(Math.max(0,i-119),i+1)),dc=dayCtx(opt.day,dk,opt.dayMemo),dp=dc?dayPatsFor(dc.pats):[];
+    const pats=all.filter(p=>p.grp!=="캔들"),cdl=all.filter(p=>p.grp==="캔들");
+    const wi=wyInfo(wyckoff(c.slice(Math.max(0,i-199),i+1))),wd=dc&&dc.wi,cs=Math.max(-2,Math.min(2,cdl.reduce((t,p)=>t+p.sc,0))),ctx=capSum(pats)+capSum(dp)+wyComb(wi,wd)+cs;
+    const done=pats.filter(p=>p.stage==="done"&&Math.abs(p.sc)>=2).map(p=>({id:p.id,nm:p.nm,dir:p.dir,sc:p.sc,inv:p.inv,tgt:p.tgt,grp:p.grp,kind:p.kind}));
+    hit={v:3,s:sum(ind)+ctx,ctx,done,cdl:cdl.filter(p=>p.dir!==0).map(p=>({id:p.id,nm:p.nm,dir:p.dir,sc:p.sc})),cb:Math.max(0,...cdl.map(p=>p.sc)),cs:Math.max(0,...cdl.map(p=>-p.sc)),wy:wi?wi.phase:null,wyStop:wi&&wi.stop||null};
+    if(opt.cache&&!live)opt.cache.set(ckey,hit);return hit};
+  const biasAt=i=>opt.bias?opt.bias(i):0;
+  const judge=(st,i)=>{const dir=st.type==="B"?1:-1,b=biasAt(i);
+    if(opt.filter&&b===-dir){
+      if(st.setup==="rng"||st.setup==="pb"||st.setup==="trd")return "상위 봉 추세와 반대";
+      if(st.setup==="brk"&&(st.vr||0)<2)return "상위 봉 추세와 반대라 거래량 2배 이상 돌파만 받아요";}
+    if(cool[st.type]!=null&&i-cool[st.type]<=3&&(st.setup==="rng"||st.setup==="pb"))return "같은 방향 신호가 방금 무효돼서 잠시 쉬어요";
+    if(st.pid&&opt.patOff&&opt.patOff.has(st.pid))return "이 코인·봉에서 과거 성적이 나빠 꺼둔 패턴이에요";
+    return null};
+  const strOf=(st,i,hit)=>{const dir=st.type==="B"?1:-1,b=biasAt(i);let s=1;
+    if(b===dir)s++;else if(b===-dir)s--;if(hit.ctx*dir>=2)s++;else if(hit.ctx*dir<=-2)s--;
+    if(st.reg===dir)s++;if(st.setup==="brk"&&(st.vr||0)>=2)s++;if(st.pid||st.setup==="wy")s++;if(cdlMax(hit,dir,opt.patOff)>=2)s++;if(st.pid&&opt.patGood&&opt.patGood.has(st.pid))s++;
+    return Math.max(0,Math.min(4,s))};
+  const end=(j,reason)=>{act.end={i:j,t:c[j].t,reason};if(reason==="inv")cool[act.type]=j;act=null};
+  /* Touch events (stop / target) end a signal even on the live candle — an order there would already be filled. */
+  const step=(j,closed)=>{const d=act.type==="B"?1:-1,k=c[j],adv=d>0?k.low:k.high,fav=d>0?k.high:k.low;
+    if(d*(adv-act.stop)<=0){end(j,act.be!=null?"be":"inv");return}
+    if(d*(fav-act.tgt)>=0){end(j,"tgt");return}
+    if(act.be==null&&d*(fav-act.tp1)>=0){act.be=j;act.stop=act.price}
+    if(closed&&j-act.i>=(act.be!=null?2*EXP:EXP))end(j,"exp")};
+  const st0=opt.start!=null?opt.start:Math.max(55,L-150);
+  for(let i=st0;i<L;i++){
+    const live=i===L-1&&liveLast,hit=hitAt(i,live);
+    if(act&&act.i<i)step(i,!live);
+    const cand=prevHit?pickSetup(setupsAt(S,E,i,hit,prevHit,opt.patOff)):null;
+    if(live){liveScore=hit.s;
+      if(cand&&!(act&&act.type===cand.type)){const r=judge(cand,i);pending={i,type:cand.type,price:c[i].close,t:c[i].t,why:cand.why,setup:cand.setup,inv:cand.inv,str:strOf(cand,i,hit),against:!!r,reason:r,endsAt:c[i].t+(opt.tfMs||0)}}
+      continue}
+    closedScore=hit.s;
+    if(cand&&!(act&&act.type===cand.type)){
+      const r=judge(cand,i),dd=cand.type==="B"?1:-1,price=c[i].close,R=Math.abs(price-cand.inv);
+      const rec={i,type:cand.type,price,t:c[i].t,score:hit.s,why:cand.why,setup:cand.setup,pid:cand.pid||null,reg:cand.reg,inv:cand.inv,stop:cand.inv,tp1:price+dd*1.5*R,tgt:cand.tgt!=null?cand.tgt:price+dd*3*R,str:strOf(cand,i,hit),be:null,end:null};
+      if(r){rec.against=true;rec.reason=r;skipped.push(rec)}
+      else{if(act)end(i,"opp");out.push(rec);act=rec}}
+    prevHit=hit;if(opt.keepHits)hits[i]=hit;
+  }
+  const ci=liveLast?L-2:L-1,lastSig=out[out.length-1];
+  return Object.assign(out,{zone:act?(act.type==="B"?1:-1):0,active:act,lastEnded:lastSig&&lastSig.end?lastSig:null,skipped,pending,closedScore,liveScore,liveLast,
+    hits,regime:regimeAt(S,E,ci),box:boxAt(c,ci+1,30),chop:isChop(S,ci),adx:S.adx[ci],ci:S.ci[ci],atrW:E.atr[ci],expN:EXP});
+}
+/* Result of a signal in %, direction-adjusted (short profit is positive). Open signals use the last price. */
+function sigResult(s,c,last){const d=s.type==="B"?1:-1;let px=last;
+  if(s.end){const r=s.end.reason;px=r==="inv"?s.inv:r==="be"?s.price:r==="tgt"?s.tgt:c[s.end.i].close}
+  return d*(px-s.price)/s.price*100}
+function defDir(a){const s=a.sigs;if(s.active)return s.active.type==="B"?"long":"short";if(s.pending&&!s.pending.against)return s.pending.type==="B"?"long":"short";return a.closedTotal<0?"short":"long"}
+function analyze(candles,dayCandles,htfCandles,cache,dayMemo,sym){
   const S=series(candles),L=candles.length,last=S.close[L-1],now=Date.now();
   const day=tf!=="1D"?dayCandles:null,dc=day?dayCtx(day,dayIdx(day,Math.min(candles[L-1].t+TF_MS[tf],now)),dayMemo):null;
   const ind=indicatorsAt(S,L-1);
-  const pats=detectPatterns(candles.slice(-50)).map(p=>({...p,tf:tfShort(tf)}));
+  const pats=detectPatterns(candles.slice(-120)).map(p=>({...p,tf:tfShort(tf)}));
   if(dc)dayPatsFor(dc.pats).forEach(p=>pats.push({...p,tf:"일봉"}));
   pats.sort((a,b)=>Math.abs(b.sc)-Math.abs(a.sc));
   const wyM=wyInfo(wyckoff(candles)),wyD=dc?dc.wi:null;
   const wy=wyComb(wyM,wyD);
   const indTotal=sum(ind), patTotal=capSum(pats.filter(p=>p.tf!=="일봉"))+capSum(pats.filter(p=>p.tf==="일봉")), total=indTotal+patTotal+wy;
-  const sigs=(()=>{const bias=makeBias(candles,htfCandles,tf,HTF[tf]);return Object.assign(candleSignals(S,{bias,filter:cfg.mtf&&!!bias,cache,day,dayMemo,tfMs:TF_MS[tf],now,confirm:CONFIRM[tf]}),{bias:bias?bias(L-1):null})})();
-  const vt=sigs.closedScore!=null?sigs.closedScore:total;
-  const verdict=vt>=5?["강력매수","sbuy"]:vt>=2?["매수","buy"]:vt<=-5?["강력매도","ssell"]:vt<=-2?["매도","sell"]:["관망","hold"];
+  const sigs=(()=>{const bias=makeBias(candles,htfCandles,tf,HTF[tf]);return Object.assign(candleSignals(S,{bias,filter:cfg.mtf&&!!bias,cache,day,dayMemo,tfMs:TF_MS[tf],now,confirm:CONFIRM[tf],...patOpts(sym)}),{bias:bias?bias(L-1):null})})();
+  const vt=sigs.closedScore!=null?sigs.closedScore:total,act=sigs.active;
+  /* The chip follows the live signal, so chip, status line and plan always agree. */
+  const verdict=act?(act.type==="B"?(act.str>=3?["강력매수","sbuy"]:["매수","buy"]):(act.str>=3?["강력매도","ssell"]:["매도","sell"])):["관망","hold"];
   const prev=S.close[L-2], chg=prev?(last-prev)/prev*100:0;
   return {...S,ind,pats,indTotal,patTotal,wyM,wyD,wyScore:wy,total,closedTotal:vt,verdict,last,chg,sigs,atr:avg(S.candles.slice(-14).map((x,i,arr)=>{const pc=i?arr[i-1].close:x.open;return Math.max(x.high-x.low,Math.abs(x.high-pc),Math.abs(x.low-pc))}))};
 }
@@ -843,7 +1104,7 @@ function chartSVG(a,P,sym){
   const win=arr=>arr.slice(off),sg0=a.sigs,wyw=a.wyM&&a.wyM.w;
   const sigs=sg0.filter(s=>s.i>=off).map(s=>({...s,i:s.i-off})),skp=(sg0.skipped||[]).filter(s=>s.i>=off).map(s=>({...s,i:s.i-off}));
   const up=win(a.upper),lo=win(a.lower),m7=win(a.ma7),m14=win(a.ma14),m28=win(a.ma28);
-  const vals=[...c.map(x=>x.high),...c.map(x=>x.low),...up,...lo,...(P?[P.entry,P.sl,P.tp1]:[])].filter(v=>v!=null);
+  const vals=[...c.map(x=>x.high),...c.map(x=>x.low),...up,...lo,...(P?[P.entry,P.sl,P.tp1]:[]),...(a.sigs.active?[a.sigs.active.inv]:[])].filter(v=>v!=null);
   let mn=Math.min(...vals),mx=Math.max(...vals);const pad=(mx-mn)*.05||1;mn-=pad;mx+=pad;
   const step=(W-PL-PR)/n,x=i=>PL+step*(i+.5),y=v=>PT+(H-PT-PB)*(1-(v-mn)/(mx-mn)),cw=Math.max(1.6,step*.66);
   let band="";const idx=up.map((v,i)=>v==null?-1:i).filter(i=>i>=0);
@@ -857,9 +1118,13 @@ function chartSVG(a,P,sym){
   const badge=(i,type,style)=>{const k=c[i],buy=type==="B",col=buy?"var(--up)":"var(--down)";let cy=buy?y(k.low)+14:y(k.high)-14;cy=Math.max(PT,Math.min(H-PB-2,cy));
     if(style==="pend")return `<g opacity=".6"><rect x="${(x(i)-8).toFixed(1)}" y="${(cy-8).toFixed(1)}" width="16" height="16" rx="4" fill="none" stroke="${col}" stroke-width="1.6" stroke-dasharray="3 2"/><text x="${x(i).toFixed(1)}" y="${(cy+4).toFixed(1)}" fill="${col}" font-size="${FS}" font-weight="700" text-anchor="middle" font-family="IBM Plex Sans KR,sans-serif">${type}</text></g>`;
     if(style==="skip")return `<g opacity=".45"><rect x="${(x(i)-7).toFixed(1)}" y="${(cy-7).toFixed(1)}" width="14" height="14" rx="4" fill="var(--flat-soft)" stroke="var(--flat)" stroke-width="1"/><text x="${x(i).toFixed(1)}" y="${(cy+4).toFixed(1)}" fill="var(--flat)" font-size="${FS-1}" font-weight="700" text-anchor="middle" font-family="IBM Plex Sans KR,sans-serif">${type}</text></g>`;
+    if(style==="end")return `<g opacity=".5"><rect x="${(x(i)-8).toFixed(1)}" y="${(cy-8).toFixed(1)}" width="16" height="16" rx="4" fill="${col}"/><text x="${x(i).toFixed(1)}" y="${(cy+4).toFixed(1)}" fill="#fff" font-size="${FS}" font-weight="700" text-anchor="middle" font-family="IBM Plex Sans KR,sans-serif">${type}</text></g>`;
     return `<g><rect x="${(x(i)-8).toFixed(1)}" y="${(cy-8).toFixed(1)}" width="16" height="16" rx="4" fill="${col}"/><text x="${x(i).toFixed(1)}" y="${(cy+4).toFixed(1)}" fill="#fff" font-size="${FS}" font-weight="700" text-anchor="middle" font-family="IBM Plex Sans KR,sans-serif">${type}</text></g>`};
   const pd=sg0.pending&&sg0.pending.i>=off?{...sg0.pending,i:sg0.pending.i-off}:null;
-  const marks=skp.map(s=>badge(s.i,s.type,"skip")).join("")+sigs.map(s=>badge(s.i,s.type)).join("")+(pd?badge(pd.i,pd.type,"pend"):"");
+  /* Ended signals are faded and an × marks the candle where they ended; the live signal's invalidation price is a dotted line. */
+  const endX=sigs.filter(s=>s.end&&s.end.i>=off).map(s=>{const j=s.end.i-off,k=c[j],buy=s.type==="B",yy=buy?y(k.low)+13:y(k.high)-5;return `<text x="${x(j).toFixed(1)}" y="${Math.max(PT+8,Math.min(H-PB-2,yy)).toFixed(1)}" fill="var(--muted)" font-size="${FS}" font-weight="700" text-anchor="middle">×</text>`}).join("");
+  const actS=sg0.active,invLn=actS&&actS.inv>=mn&&actS.inv<=mx?`<line x1="${x(Math.max(0,actS.i-off)).toFixed(1)}" x2="${W-PR}" y1="${y(actS.inv).toFixed(1)}" y2="${y(actS.inv).toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="2 3"/><text x="${(x(Math.max(0,actS.i-off))+3).toFixed(1)}" y="${(y(actS.inv)+(actS.type==="B"?12:-4)).toFixed(1)}" fill="var(--muted)" font-size="${FS-1}" font-family="IBM Plex Sans KR,sans-serif">무효</text>`:"";
+  const marks=invLn+skp.map(s=>badge(s.i,s.type,"skip")).join("")+sigs.map(s=>badge(s.i,s.type,s.end?"end":"")).join("")+endX+(pd?badge(pd.i,pd.type,"pend"):"");
   const sel=selCandle[sym]!=null&&selCandle[sym]>=off&&selCandle[sym]<a.candles.length?selCandle[sym]-off:null;
   const selLine=sel!=null?`<rect x="${(x(sel)-step/2).toFixed(1)}" y="${PT}" width="${step.toFixed(1)}" height="${H-PT-PB}" fill="var(--ink)" opacity=".08"/><line x1="${x(sel).toFixed(1)}" x2="${x(sel).toFixed(1)}" y1="${PT}" y2="${H-PB}" stroke="var(--ink)" stroke-width=".8" stroke-dasharray="3 3"/>`:"";
   const hits=c.map((k,i)=>`<rect data-ci="${off+i}" data-sym="${sym}" x="${(x(i)-step/2).toFixed(1)}" y="0" width="${step.toFixed(1)}" height="${H}" fill="#000" fill-opacity="0" style="cursor:pointer"/>`).join("");
@@ -881,15 +1146,19 @@ function candleInfo(a,sym){
   const k=a.candles[si],prev=a.candles[si-1],chg=prev?(k.close-prev.close)/prev.close*100:0,isLive=si===a.candles.length-1&&a.sigs.liveLast;
   const sg=a.sigs.find(s=>s.i===si),sk=(a.sigs.skipped||[]).find(s=>s.i===si),pd=a.sigs.pending&&a.sigs.pending.i===si?a.sigs.pending:null;
   let sig="";
-  if(sg){const long=sg.type==="B",lv=levelsAt(a.candles,si,long,sg.price,params(sym)),pE=v=>pctTxt((v-sg.price)/sg.price*100),nowG=(a.last-sg.price)/sg.price*100*(long?1:-1);
-    sig=`<div class="csig ${long?"b":"s"}"><div class="cst"><span class="sg ${long?"b":"s"}">${long?"B 롱":"S 숏"} 확정</span><span>${esc(sg.why)}</span></div>
+  if(sg){const long=sg.type==="B",lv=levelsAt(a.candles,si,long,sg.price,params(sym),sg.inv),pE=v=>pctTxt((v-sg.price)/sg.price*100),nowG=sigResult(sg,a.candles,a.last);
+    sig=`<div class="csig ${long?"b":"s"}"><div class="cst"><span class="sg ${long?"b":"s"}">${long?"B 롱":"S 숏"} 확정</span><span>${SETUP_NM[sg.setup]}${sg.str>=3?" (강)":""} · ${esc(sg.why)}</span></div>
+      <div class="ds"><b>${sg.end?END_NM[sg.end.reason]+` · ${fmtTime(sg.end.t)}`:sg.be!=null?"진행 중 · 목표1 도달, 본전 보호":"진행 중인 신호"}</b></div>
       <div class="cgrid"><span class="k">진입 확정가</span><span class="v">${fmt(sg.price)}</span><span class="n">신호 캔들 종가</span>
+      <span class="k">무효 가격</span><span class="v">${fmt(sg.inv)}</span><span class="n">${pE(sg.inv)} · 차트 구조</span>
       <span class="k dn">손절가</span><span class="v dn">${fmt(lv.sl)}</span><span class="n">${pE(lv.sl)}</span>
       <span class="k upc">목표가 1</span><span class="v upc">${fmt(lv.tp1)}</span><span class="n">${pE(lv.tp1)} · 절반</span>
       ${lv.tp2!=null?`<span class="k upc">목표가 2</span><span class="v upc">${fmt(lv.tp2)}</span><span class="n">${pE(lv.tp2)}</span>`:`<span class="k upc">나머지</span><span class="v upc">트레일링</span><span class="n">ATR ${lv.trail}배</span>`}</div>
-      <div class="ds">지금 가격 ${fmt(a.last)} · 신호 이후 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>. 실제 체결은 다음 캔들 시가 근처라 조금 다를 수 있어요.</div></div>`}
+      <div class="ds">${sg.end?`결과 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`:`지금 가격 ${fmt(a.last)} · 신호 이후 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`} 실제 체결은 다음 캔들 시가 근처라 조금 다를 수 있어요.</div></div>`}
   else if(pd)sig=`<div class="csig pend"><div class="cst"><span class="sg ghost ${pd.type==="B"?"b":"s"}">${pd.type} 예비</span><span>${esc(pd.why)}</span></div><div class="ds">아직 마감 전이라 확정되지 않았어요. 마감 때 조건이 유지되면 종가가 진입 확정가가 돼요.</div></div>`;
-  else if(sk)sig=`<div class="csig pend"><div class="cst"><span class="sg ghost">${sk.type} 보류</span><span>${esc(sk.why)}</span></div><div class="ds">${esc(sk.reason||"상위 봉 추세와 반대")}라서 확정하지 않은 신호예요.</div></div>`;
+  else if(sk)sig=`<div class="csig pend"><div class="cst"><span class="sg ghost">${sk.type} 보류</span><span>${esc(sk.why)}</span></div><div class="ds">${esc(sk.reason||"상위 봉 추세와 반대")}라서 확정하지 않은 신호예요. (${SETUP_NM[sk.setup]||""})</div></div>`;
+  {const cp=sidePatterns(a.candles.slice(Math.max(0,si-59),si+1),fmt,false).concat(sidePatterns(mirrorC(a.candles.slice(Math.max(0,si-59),si+1)),v=>fmt(1/v),true)).filter(p=>p.grp==="캔들");
+   if(cp.length)sig+=`<div class="ds">캔들 패턴: ${cp.map(p=>`<b class="${cls(p.sc)}">${p.nm}</b>`).join(" · ")}</div>`}
   const d=new Date(k.t),p2=v=>String(v).padStart(2,"0");
   return `<div class="cinfo"><div class="chd"><b>${d.getMonth()+1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())} 캔들</b>${isLive?`<span class="muted">진행 중</span>`:""}<span class="${cls(chg)}">${pctTxt(chg)}</span><button class="mini ghost" data-csel="${sym}">닫기</button></div>
     <div class="ohlc"><span>시가 <b>${fmt(k.open)}</b></span><span>고가 <b>${fmt(k.high)}</b></span><span>저가 <b>${fmt(k.low)}</b></span><span>종가 <b>${fmt(k.close)}</b></span></div>${sig}</div>`;
@@ -907,12 +1176,13 @@ function macdSVG(a){
 }
 
 /* ---------- render ---------- */
+function patOpts(sym){const ps=sym&&patStore[sym+"|"+tf];return ps&&ps.apply?{patOff:new Set(ps.off||[]),patGood:new Set(ps.good||[])}:{}}
 function getA(sym){
   const st=state[sym];if(!st||!st.main||!st.main.c)return null;
   const day=tf==="1D"?null:(st.day&&st.day.c)||null;
   const htf=HTF[tf]==="1D"?day:(st.htf&&st.htf.c)||null;
-  const key=st.main.at+"|"+(st.day&&st.day.at)+"|"+(st.htf&&st.htf.at)+"|"+cfg.mtf;
-  if(st.cacheKey!==key){st.cacheKey=key;st.sc=st.sc||{};const ck=tf+"|"+src;st.sc[ck]=st.sc[ck]||new Map();st.dm=st.dm||{};st.dm[src]=st.dm[src]||new Map();st.a=analyze(st.main.c,day,htf,st.sc[ck],st.dm[src])}
+  const key=st.main.at+"|"+(st.day&&st.day.at)+"|"+(st.htf&&st.htf.at)+"|"+cfg.mtf+"|"+((patStore[sym+"|"+tf]||{}).at||0);
+  if(st.cacheKey!==key){st.cacheKey=key;st.sc=st.sc||{};const ck=tf+"|"+src;st.sc[ck]=st.sc[ck]||new Map();st.dm=st.dm||{};st.dm[src]=st.dm[src]||new Map();st.a=analyze(st.main.c,day,htf,st.sc[ck],st.dm[src],sym)}
   return st.a;
 }
 function render(){
@@ -922,16 +1192,15 @@ function render(){
     const st=state[sym]||{};const a=getA(sym);const err=st.main&&st.main.err;
     let right,patLine="";
     if(a){const tk=tickers[sym+"USDT"],px=tk?tk.price:a.last,ch=tk?tk.chg:a.chg;right=`<div class="px"><div class="p">${fmt(px)}</div><div class="c ${cls(ch)}">${ch>=0?"+":""}${ch.toFixed(2)}%</div></div><span class="chip ${a.verdict[1]}">${a.verdict[0]}</span>`;
-      const ls=a.sigs[a.sigs.length-1],ago=ls?a.candles.length-1-ls.i:99,pd=a.sigs.pending;
-      const z=a.sigs.zone;
-      if(ls&&z!==0&&((z>0)===(ls.type==="B")))patLine=`<div class="pat ${ls.type==="B"?"up":"down"}">${ls.type==="B"?(ago<=1?"롱 신호 확정 · 방금 마감":`롱 유지 · B 이후 ${ago}캔들째`):(ago<=1?"숏 신호 확정 · 방금 마감":`숏 유지 · S 이후 ${ago}캔들째`)}</div>`;
-      else{const sk=a.sigs.skipped&&a.sigs.skipped[a.sigs.skipped.length-1];
-        if(sk&&z!==0&&((z>0)===(sk.type==="B"))&&(!ls||sk.i>ls.i))patLine=`<div class="pat flat">${sk.type==="B"?"롱":"숏"} 신호 보류 · ${sk.reason||"상위 봉 반대"}</div>`;
-        else if(a.sigs.chop&&!ls)patLine=`<div class="pat flat">횡보장 · 신호 쉬는 중 (추세 강도 ${a.sigs.adx!=null?a.sigs.adx.toFixed(0):"–"})</div>`;
-        else if(z!==0)patLine=`<div class="pat ${z>0?"up":"down"}">${z>0?"롱":"숏"} 구간 유지 중 · 신호 캔들은 표시 범위 이전</div>`;
-        else patLine=`<div class="pat flat">관망 · 신호 없음${a.pats.length?` · ${a.pats[0].nm}`:""}</div>`;}
+      const act=a.sigs.active,le=a.sigs.lastEnded,pd=a.sigs.pending,Lc=a.candles.length-1,sk=a.sigs.skipped&&a.sigs.skipped[a.sigs.skipped.length-1];
+      if(act){const ago=Lc-act.i,lab=act.type==="B"?"롱":"숏";
+        patLine=`<div class="pat ${act.type==="B"?"up":"down"}">${act.be!=null?`${lab} 진행 · 목표1 도달, 본전 보호 중`:ago<=1?`${lab} 신호 확정 · ${SETUP_NM[act.setup]} · 무효 ${fmt(act.inv)}`:`${lab} 유효 · ${act.type} 이후 ${ago}캔들째 · 무효 ${fmt(act.inv)}`}</div>`}
+      else if(le&&Lc-le.end.i<=8)patLine=`<div class="pat flat">관망 · 직전 ${le.type} ${END_SHORT[le.end.reason]}</div>`;
+      else if(sk&&Lc-sk.i<=3)patLine=`<div class="pat flat">${sk.type==="B"?"롱":"숏"} 신호 보류 · ${sk.reason}</div>`;
+      else{const rg=a.sigs.regime,bx=a.sigs.box;
+        patLine=rg>0?`<div class="pat flat">관망 · 상승 추세, 눌림목 B 대기</div>`:rg<0?`<div class="pat flat">관망 · 하락 추세, 반등 후 S 대기</div>`:`<div class="pat flat">관망 · 박스권${bx?` ${fmt(bx.lo)}~${fmt(bx.hi)}`:""}, 끝단 반전·돌파 대기</div>`}
       if(pd){const left=Math.max(1,Math.round((pd.endsAt-Date.now())/60000)),lt=left>=120?Math.round(left/60)+"시간":left+"분";
-        patLine=`<div class="pat pend ${pd.type==="B"?"up":"down"}">${pd.type==="B"?"롱":"숏"} 예비 신호${pd.against?` (${pd.reason})`:""} · 마감까지 ${lt}</div>`}
+        patLine=`<div class="pat pend ${pd.type==="B"?"up":"down"}">${pd.type==="B"?"롱":"숏"} 예비 신호 · ${SETUP_NM[pd.setup]}${pd.against?` (${pd.reason})`:""} · 마감까지 ${lt}</div>`}
       const wq=a.wyM||a.wyD;if(wq)patLine=patLine.replace("</div>",` · <b class="wyt">와이코프 ${wq.phase==="fail"?"실패":wq.phase}${a.wyM?"":"(일봉)"}</b></div>`);}
     else if(err) right=`<div class="px"><div class="c flat">—</div></div><span class="chip wait">불러오기 실패</span>`;
     else right=`<div class="px"><span class="skel"></span></div><span class="chip wait">계산 중</span>`;
@@ -941,9 +1210,9 @@ function render(){
         const dayNote=tf!=="1D"&&!(st.day&&st.day.c)?`<div class="nopat">일봉 패턴은 아직 불러오는 중이에요.</div>`:"";
         det=`<div class="detail">
           <div class="meter"><div class="lbl"><span>강력매도</span><span class="score">마감 기준 ${scText(a.closedTotal)}${a.sigs.liveLast?` · 진행 중 캔들 ${scText(a.total)}`:""}</span><span>강력매수</span></div><div class="track"><div class="pin" style="left:${pos}%"></div></div>
-            <div class="ds">진행 중 캔들 구성: 지표 ${scText(a.indTotal)} · 패턴 ${scText(a.patTotal)} · 와이코프 ${scText(a.wyScore)}. 판정과 B/S는 마감된 캔들로만 확정해요.</div></div>
+            <div class="ds">참고 점수(진행 중 캔들): 지표 ${scText(a.indTotal)} · 패턴 ${scText(a.patTotal)} · 와이코프 ${scText(a.wyScore)}. 이 점수는 신호의 세기만 정해요. 판정 칩은 지금 살아있는 B/S 신호 기준이고, B/S는 마감된 캔들로만 확정해요.</div></div>
           <div class="zoom" role="group" aria-label="차트 캔들 수">${[30,50,80,150,"all"].map(z=>`<button class="mini ${ (cfg.zoom||50)===z?"on":""}" data-zoom="${z}">${z==="all"?"전체":z+"개"}</button>`).join("")}</div>
-          ${chartSVG(a,tradePlan(a,dirPick[sym]||(a.sigs.length?(a.sigs[a.sigs.length-1].type==="B"?"long":"short"):(a.total<0?"short":"long")),sym),sym)}
+          ${chartSVG(a,tradePlan(a,dirPick[sym]||defDir(a),sym),sym)}
           ${candleInfo(a,sym)}
           <div class="legend"><span><i style="background:var(--ink)"></i>진입</span><span><i style="background:var(--down)"></i>손절</span><span><i style="background:var(--up)"></i>목표</span><span><i style="background:var(--liq)"></i>청산</span></div>
           ${planHTML(a,sym)}
@@ -952,14 +1221,14 @@ function render(){
           <div class="legend"><span class="up">▮</span><span style="margin-left:-8px">상승</span><span class="down">▮</span><span style="margin-left:-8px">하락</span><span><i style="background:var(--ma7)"></i>MA7</span><span><i style="background:var(--ma14)"></i>MA14</span><span><i style="background:var(--ma28)"></i>MA28</span><span><i style="background:var(--band);height:8px"></i>볼린저</span><span><b class="up">B</b> 매수 <b class="down">S</b> 매도</span></div>
           ${wyHTML(a)}
           <h3 class="h3">이 캔들에서 매수·매도</h3>
-          <div class="pats">${a.sigs.pending?(()=>{const pd=a.sigs.pending,left=Math.max(1,Math.round((pd.endsAt-Date.now())/60000));return `<div class="pt pendrow"><span class="sg ${pd.type==="B"?"b":"s"} ghost">${pd.type==="B"?"B 예비":"S 예비"}</span><div><div class="nm">진행 중 캔들 · ${fmt(pd.price)}</div><div class="ds">${esc(pd.why)} · 마감까지 약 ${left}분, 마감 때 조건이 유지되면 확정돼요${pd.against?" · 상위 봉 추세와 반대라 확정돼도 보류될 수 있어요":""}</div></div><span class="s flat">대기</span></div>`})():""}
-          ${a.sigs.length?a.sigs.slice(-6).reverse().map(s=>{const g=(a.last-s.price)/s.price*100,ago=a.candles.length-1-s.i;return `<div class="pt"><span class="sg ${s.type==="B"?"b":"s"}">${s.type==="B"?"B 매수":"S 매도"}</span><div><div class="nm">${fmtTime(s.t)} 캔들 · ${fmt(s.price)}</div><div class="ds">${esc(s.why)} · ${ago+"캔들 전"}</div></div><span class="s ${cls(g)}">${g>=0?"+":""}${g.toFixed(1)}%</span></div>`}).join(""):`<div class="nopat">최근 ${tfShort(tf)}에서는 새 매수·매도 신호가 없었어요.</div>`}
+          <div class="pats">${a.sigs.pending?(()=>{const pd=a.sigs.pending,left=Math.max(1,Math.round((pd.endsAt-Date.now())/60000));return `<div class="pt pendrow"><span class="sg ${pd.type==="B"?"b":"s"} ghost">${pd.type==="B"?"B 예비":"S 예비"}</span><div><div class="nm">진행 중 캔들 · ${fmt(pd.price)}</div><div class="ds">${esc(pd.why)} · 마감까지 약 ${left}분, 마감 때 조건이 유지되면 확정돼요${pd.against?` · ${pd.reason}라서 확정돼도 보류될 수 있어요`:` · 무효 가격 ${fmt(pd.inv)}`}</div></div><span class="s flat">대기</span></div>`})():""}
+          ${a.sigs.length?a.sigs.slice(-6).reverse().map(s=>{const g=sigResult(s,a.candles,a.last),ago=a.candles.length-1-s.i;return `<div class="pt${s.end?" ended":""}"><span class="sg ${s.type==="B"?"b":"s"}">${s.type==="B"?"B 매수":"S 매도"}</span><div><div class="nm">${fmtTime(s.t)} 캔들 · ${fmt(s.price)} · ${SETUP_NM[s.setup]}${s.str>=3?" · 강":""}</div><div class="ds">${esc(s.why)} · ${ago}캔들 전 · <b>${s.end?END_NM[s.end.reason]+` (${fmtTime(s.end.t)})`:s.be!=null?"진행 중 · 목표1 도달, 본전 보호":"진행 중 · 무효 "+fmt(s.inv)}</b></div></div><span class="s ${cls(g)}">${g>=0?"+":""}${g.toFixed(1)}%</span></div>`}).join(""):`<div class="nopat">최근 ${tfShort(tf)}에서는 새 매수·매도 신호가 없었어요.</div>`}
           ${a.sigs.skipped&&a.sigs.skipped.length?`<div class="nopat">걸러낸 신호 ${a.sigs.skipped.length}개 (차트의 흐린 회색 표시): ${a.sigs.skipped.slice(-3).map(s=>`${s.type} ${fmtTime(s.t)} · ${s.reason}`).join(" / ")}</div>`:""}
-          <div class="nopat">오른쪽 숫자는 신호 캔들 종가 대비 지금 가격 변화예요. B/S는 캔들이 마감된 뒤에만 확정되고, 확정된 신호는 바뀌지 않아요. 흐린 점선 표시는 진행 중 캔들의 예비 신호예요.</div>
-          <div class="mtfrow"><span>시장 상태: <b class="${a.sigs.chop?"flat":"up"}">${a.sigs.chop?"횡보장 (신호 쉬는 중)":"추세장"}</b> · 추세 강도(ADX) ${a.sigs.adx!=null?a.sigs.adx.toFixed(0):"–"} · 횡보 지수 ${a.sigs.ci!=null?a.sigs.ci.toFixed(0):"–"}</span></div>
+          <div class="nopat">오른쪽 숫자는 신호 방향 기준 손익이에요 (숏은 내려가면 +). 끝난 신호는 끝난 가격 기준, 진행 중인 신호는 지금 가격 기준이에요. 신호는 무효 가격에 닿거나, 목표에 닿거나, 반대 신호가 뜨거나, ${tfShort(tf)} ${a.sigs.expN}캔들이 지나면 끝나요. B/S는 캔들이 마감된 뒤에만 확정되고, 확정된 신호는 바뀌지 않아요. 흐린 점선 표시는 진행 중 캔들의 예비 신호예요.</div>
+          <div class="mtfrow"><span>시장 상태: <b class="${cls(a.sigs.regime)}">${a.sigs.regime>0?"상승 추세 (눌림목·돌파 B만)":a.sigs.regime<0?"하락 추세 (반등 매도·이탈 S만)":"박스권 (끝단 반전·돌파만)"}</b> · 추세 강도(ADX) ${a.sigs.adx!=null?a.sigs.adx.toFixed(0):"–"} · 횡보 지수 ${a.sigs.ci!=null?a.sigs.ci.toFixed(0):"–"}</span></div>
           <div class="mtfrow"><span>상위 봉(${{"15m":"4시간봉","4h":"일봉","1D":"주봉"}[tf]}) 추세: <b class="${cls(a.sigs.bias||0)}">${a.sigs.bias==null?"불러오는 중":a.sigs.bias>0?"상승":a.sigs.bias<0?"하락":"중립"}</b></span><button class="mini ${cfg.mtf?"on":""}" data-mtf="1" aria-pressed="${cfg.mtf}">상위 봉 필터 ${cfg.mtf?"켜짐":"꺼짐"}</button></div></div>
-          <h3 class="h3">차트 패턴</h3>
-          <div class="pats">${a.pats.length?a.pats.map(p=>`<div class="pt"><span class="tf">${p.tf}</span><div><div class="nm ${cls(p.sc)}">${p.nm}</div><div class="ds">${p.ds}</div></div><span class="s ${cls(p.sc)}">${scText(p.sc)}</span></div>`).join(""):`<div class="nopat">지금은 눈에 띄는 패턴이 없어요.</div>`}${dayNote}</div>
+          <h3 class="h3">패턴 (차트 · 하모닉 · 엘리엇 · 와이코프 · 캔들)</h3>
+          <div class="pats">${a.pats.length?(()=>{const ps=patStore[sym+"|"+tf],off=new Set(ps&&ps.apply?ps.off:[]);return a.pats.map(p=>`<div class="pt"><span class="tf">${p.tf}<br>${p.grp||"차트"}</span><div><div class="nm ${cls(p.sc)}">${p.nm}${p.stage==="done"?` <span class="tag">확정</span>`:""}${p.id&&off.has(p.id)?` <span class="tag off">이 코인 꺼짐</span>`:""}</div><div class="ds">${p.ds}${p.inv!=null&&p.stage==="done"?` · 무효 ${fmt(p.inv)}`:""}${p.tgt!=null?` · 목표 ${fmt(p.tgt)}`:""}</div></div><span class="s ${cls(p.sc)}">${scText(p.sc)}</span></div>`).join("")})():`<div class="nopat">지금은 눈에 띄는 패턴이 없어요.</div>`}${dayNote}</div>
           ${rsiSVG(a)}${macdSVG(a)}
           <h3 class="h3">보조지표</h3>
           <div class="inds">${a.ind.map(i=>`<div class="ind"><div class="top"><span class="t">${i.key}</span><span class="s ${cls(i.sc)}">${scText(i.sc)}</span></div><div class="r">${i.txt}</div><div class="v">${i.val}</div></div>`).join("")}</div>
@@ -1071,15 +1340,20 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshAll
 
 /* ---------- levels shared by backtest and journal ---------- */
 function atrAt(c,i){let s=0,n=0;for(let k=Math.max(1,i-13);k<=i;k++){const x=c[k],pc=c[k-1].close;s+=Math.max(x.high-x.low,Math.abs(x.high-pc),Math.abs(x.low-pc));n++}return n?s/n:c[i].close*0.01}
-function levelsAt(c,i,long,entry,p){
+function levelsAt(c,i,long,entry,p,inv){
   p=p||DEF_P[tf];
   if(cfg.slMode==="margin"){const atr=atrAt(c,i),pct=cfg.maxLoss/Math.max(1,cfg.lev),d=entry*pct/100,sg=long?1:-1;
     return {d,atr,clamp:`증거금의 ${cfg.maxLoss}% 손실 지점 (${cfg.lev}배 기준 가격 ${pct.toFixed(2)}%)`,wild:false,tight:d<atr,sl:entry-sg*d,tp1:entry+sg*p.r1*d,tp2:p.trail?null:entry+sg*p.r2*d,r1:p.r1,r2:p.r2,trail:p.trail}}
-  const atr=atrAt(c,i),win=c.slice(Math.max(0,i-9),i+1);
-  let sl=long?Math.min(...win.map(x=>x.low))-0.2*atr:Math.max(...win.map(x=>x.high))+0.2*atr,d=Math.abs(entry-sl),clamp="";
+  const atr=atrAt(c,i),win=c.slice(Math.max(0,i-9),i+1);let d,clamp="";
+  if(inv!=null&&(long?inv<entry:inv>entry)){
+    /* The signal's own invalidation price (chart structure) is the stop. */
+    d=Math.abs(entry-inv);const lo=0.6*atr,hi=Math.max(p.sl[1],3)*atr;clamp="신호 무효 가격(차트 구조) 기준";
+    if(d<lo){d=lo;clamp="무효 가격이 너무 가까워서 ATR 0.6배로 넓혔어요"}else if(d>hi){d=hi;clamp=`무효 가격이 너무 멀어서 ATR ${+(hi/atr).toFixed(1)}배로 줄였어요`}
+  }else{
+  const sl=long?Math.min(...win.map(x=>x.low))-0.2*atr:Math.max(...win.map(x=>x.high))+0.2*atr;d=Math.abs(entry-sl);
   if(long?sl>=entry:sl<=entry)d=0;
   if(d<p.sl[0]*atr){d=p.sl[0]*atr;clamp=`최근 ${long?"저점":"고점"}이 너무 가까워서 ATR ${p.sl[0]}배로 넓혔어요`}
-  else if(d>p.sl[1]*atr){d=p.sl[1]*atr;clamp=`최근 ${long?"저점":"고점"}이 너무 멀어서 ATR ${p.sl[1]}배로 줄였어요`}
+  else if(d>p.sl[1]*atr){d=p.sl[1]*atr;clamp=`최근 ${long?"저점":"고점"}이 너무 멀어서 ATR ${p.sl[1]}배로 줄였어요`}}
   const cap=entry*MAXSL[tf]/100,wild=p.sl[0]*atr>cap;
   if(d>cap){d=cap;clamp=`손절폭이 ${tfShort(tf)} 기준으로 너무 커서 ${MAXSL[tf]}%로 제한했어요`}
   const sg=long?1:-1;
@@ -1102,9 +1376,9 @@ function walkTrade(c,from,pos,stopAt){
 function simulate(c,sigs,p,fromI=0,toI=Infinity){
   const trades=[];let k=0;const ss=sigs.filter(x=>x.i>=fromI&&x.i<toI).sort((a,b)=>a.i-b.i);
   while(k<ss.length){
-    const s=ss[k],long=s.type==="B",entry=c[s.i].close,lv=levelsAt(c,s.i,long,entry,p);
+    const s=ss[k],long=s.type==="B",entry=c[s.i].close,lv=levelsAt(c,s.i,long,entry,p,s.inv);
     const opp=new Set(ss.filter(x=>x.i>s.i&&x.type!==s.type).map(x=>x.i));
-    const r=walkTrade(c,s.i+1,{long,entry,...lv},j=>opp.has(j));
+    const expJ=s.end&&s.end.reason==="exp"?s.end.i:-1,r=walkTrade(c,s.i+1,{long,entry,...lv},j=>opp.has(j)||j===expJ);
     const fee=2*FEE*entry/lv.d;
     trades.push({i:s.i,t:s.t,long,R:r.R-fee,kind:r.kind,bars:r.j-s.i,open:!!r.open});
     k++;while(k<ss.length&&ss[k].i<=r.j&&!(r.kind==="반대 신호"&&ss[k].i===r.j))k++;
@@ -1127,6 +1401,24 @@ function optimize(c,sigs){
   return {adopted,p:best.p,train:best.train,test,def,defTrain,defTest,split,splitT:c[split]?c[split].t:null,
     reason:adopted?"검증 구간에서도 수익이 나고 기본값보다 좋아서 적용했어요.":best.train.avgR<=0?"앞 구간에서 수익이 나는 조합이 없었어요. 이 코인·봉은 신호 자체가 약해서 기본값을 유지해요.":test.n<4?"검증 구간 거래가 4회 미만이라 확신할 수 없어 기본값을 유지해요.":test.avgR<=0?"앞 구간에선 좋았지만 검증 구간에서 손실이라 기본값을 유지해요 (과거에만 맞춘 값일 가능성).":"검증 구간에서 기본값보다 낫지 않아 기본값을 유지해요."};
 }
+/* Pattern report card: every time a pattern appears (chart / harmonic / Elliott / Wyckoff on its confirmation candle,
+   candle patterns on their candle), take the trade it suggests — stop at the pattern's invalidation (0.8–3 ATR),
+   half at 1.5R, rest at 3R, exit after the signal lifetime — and score it. Patterns that lose on this coin/timeframe
+   are switched off as signals; strong ones add +1 strength. Needs 6+ occurrences before judging. */
+function patternStats(c,hits,start,EXP,until=Infinity){
+  const rows={};let prev=null;
+  for(let i=start;i<Math.min(c.length-1,until);i++){const h=hits[i];if(!h){prev=null;continue}
+    const seen=new Set((prev&&prev.done||[]).map(e=>e.id));
+    const evs=[...(h.done||[]).filter(e=>!seen.has(e.id)).map(e=>({id:e.id,nm:e.nm,d:e.dir,inv:e.inv,grp:e.grp})),...(h.cdl||[]).map(e=>({id:e.id,nm:e.nm,d:e.dir,inv:null,grp:"캔들"}))];
+    for(const e of evs){if(!e.d)continue;const A=atrAt(c,i),entry=c[i].close,long=e.d>0,sg=long?1:-1;
+      let d=e.inv!=null&&sg*(entry-e.inv)>0?Math.abs(entry-e.inv):(long?entry-Math.min(c[i].low,c[i-1].low):Math.max(c[i].high,c[i-1].high)-entry)+0.2*A;d=Math.max(0.8*A,Math.min(3*A,d));
+      const r=walkTrade(c,i+1,{long,entry,d,sl:entry-sg*d,tp1:entry+sg*1.5*d,tp2:entry+sg*3*d,r1:1.5,r2:3},j=>j-i>=EXP);if(r.open)continue;
+      const R=r.R-2*FEE*entry/d,k=rows[e.id]||(rows[e.id]={id:e.id,nm:e.nm.replace(/ (완성|도달).*$/,""),grp:e.grp,n:0,w:0,R:0});k.n++;if(R>0)k.w++;k.R+=R}
+    prev=h}
+  const list=Object.values(rows).map(r=>({...r,avg:r.R/r.n})).sort((a,b)=>b.n-a.n);
+  const off=list.filter(r=>r.n>=12&&r.avg<-0.2).map(r=>r.id),good=list.filter(r=>r.grp!=="캔들"&&r.n>=12&&r.avg>=0.3).map(r=>r.id);
+  return {list,off,good};
+}
 async function runBacktest(sym){
   const key=sym+"|"+tf;bt[key]={busy:true};render();
   try{
@@ -1134,8 +1426,16 @@ async function runBacktest(sym){
     if(tf==="4h")day=h;else if(tf==="15m"){try{day=await klines(sym,"1D",200)}catch(e){}}
     await new Promise(r=>setTimeout(r,30));
     const S=series(c),bias=makeBias(c,h,tf,HTF[tf]),cache=new Map(),dayMemo=new Map(),base={start:60,bias,cache,day,dayMemo,tfMs:TF_MS[tf],confirm:CONFIRM[tf]};
-    const all=candleSignals(S,{...base,filter:false}),flt=bias?candleSignals(S,{...base,filter:true}):null;
+    const all=candleSignals(S,{...base,filter:false,keepHits:true}),flt=bias?candleSignals(S,{...base,filter:true}):null;
     const opt=optimize(c,all);
+    /* learning check: build the report card on the first 70% only, then compare the last 30% with and without it */
+    const EXP=EXPIRE[tf],split=Math.floor(60+(c.length-60)*0.7),pT=patternStats(c,all.hits,60,EXP,split),useF=cfg.mtf&&!!bias;
+    const gated=candleSignals(S,{...base,filter:useF,patOff:new Set(pT.off),patGood:new Set(pT.good)}),ungated=useF?flt:all;
+    const learn={before:simulate(c,ungated,DEF_P[tf],split),after:simulate(c,gated,DEF_P[tf],split),offN:pT.off.length,goodN:pT.good.length,splitT:c[split]?c[split].t:null};
+    const pf=patternStats(c,all.hits,60,EXP);
+    patStore[key]={at:Date.now(),off:pf.off,good:pf.good,rows:pf.list.slice(0,40).map(r=>({id:r.id,nm:r.nm,grp:r.grp,n:r.n,w:r.w,avg:+r.avg.toFixed(3)})),learn:{b:{n:learn.before.n,avg:learn.before.avgR,tot:learn.before.totR},a:{n:learn.after.n,avg:learn.after.avgR,tot:learn.after.totR},offN:learn.offN,goodN:learn.goodN,splitT:learn.splitT},
+      /* applied only when learning on the first 70% actually improved the unseen last 30% */
+      apply:learn.offN+learn.goodN>0&&learn.after.n>=5&&learn.after.totR>learn.before.totR+0.5};store.set("bb.pat",patStore);
     optStore[key]={adopted:opt.adopted,p:opt.p||null,test:opt.test?{n:opt.test.n,wr:opt.test.wr,avgR:opt.test.avgR}:null,at:Date.now()};store.set("bb.opt",optStore);
     bt[key]={res:simulate(c,all,DEF_P[tf]),resF:flt?simulate(c,flt,DEF_P[tf]):null,opt,from:c[60]?c[60].t:c[0].t,to:c[c.length-1].t,count:c.length,at:Date.now()};
   }catch(e){bt[key]={err:errText(e)}}
@@ -1165,8 +1465,22 @@ function btHTML(sym){
     </tbody></table></div>
     <div class="ds">1R = 손절 한 번의 손실(${cfg.slMode==="margin"?`증거금 ${fmt(cfg.marginAmt)} USDT의 ${cfg.maxLoss}%`:`시드의 ${cfg.risk}%`}, ${usd(1)} USDT). 누적 ${fmtR(best.totR)}는 약 ${usd(best.totR)} USDT예요 (복리 미반영). 롱 ${best.long.n}회 중 ${best.long.w}승 · 숏 ${best.short.n}회 중 ${best.short.w}승.</div>
     <div class="ds">과거 결과가 미래 수익을 보장하지 않아요. 표본이 30회 이상이고 두 기간 이상에서 비슷할 때 더 믿을 만해요.</div>
+    ${patCardHTML(sym)}
     ${optHTML(r.opt,sym)}
     <button class="btn" data-bt="${sym}">다시 계산</button></div>`;
+}
+function patCardHTML(sym){
+  const ps=patStore[sym+"|"+tf];if(!ps||!ps.rows)return"";
+  const off=new Set(ps.off),good=new Set(ps.good),rows=[...ps.rows.filter(r=>r.n>=2&&r.grp!=="캔들"),...ps.rows.filter(r=>r.n>=2&&r.grp==="캔들")].slice(0,28),lr=ps.learn,d=t=>{if(!t)return"";const x=new Date(t);return `${x.getMonth()+1}/${x.getDate()}`};
+  const st=r=>off.has(r.id)?(ps.apply?`<b class="down">꺼짐</b>`:`<span class="down">나쁨</span>`):r.grp==="캔들"?`<span class="flat">확인용</span>`:good.has(r.id)?`<b class="up">${ps.apply?"우수 +1":"우수"}</b>`:r.n<6?`<span class="flat">표본 부족</span>`:"사용";
+  return `<div class="opt"><div class="h4">패턴 성적표 · 이 코인 ${tfShort(tf)}에서 학습</div>
+    <div class="ds">과거 1,000개 캔들에서 패턴이 나올 때마다 그 패턴대로 진입했다고 치고 채점했어요. 12번 이상 나온 패턴 중 평균 −0.2R보다 나쁘면 <b>신호에서 꺼요</b> (캔들 패턴은 확인용에서 빼요). 평균 +0.3R 이상이면 <b>신호 세기를 +1</b> 해요.</div>
+    <div class="btv ${ps.apply?"good":""}">${ps.apply?"<b>이 코인·봉에 학습 적용 중</b> · 학습에 안 쓴 구간에서 실제로 결과가 좋아졌어요.":"<b>학습은 적용하지 않아요</b> · 학습에 안 쓴 구간에서 결과가 나아지지 않아서, 모든 패턴을 기본 규칙대로 써요. 성적표는 참고용이에요."}</div>
+    ${lr?`<div class="btv ${lr.a.tot>=lr.b.tot?"good":""}">학습 효과 검증 (${d(lr.splitT)} 이후 뒤 30% 구간, 앞 70%로만 학습): 학습 전 ${lr.b.n}회 · 평균 ${fmtR(lr.b.avg)} · 누적 ${fmtR(lr.b.tot)} → 학습 후 ${lr.a.n}회 · 평균 ${fmtR(lr.a.avg)} · 누적 ${fmtR(lr.a.tot)}${lr.a.tot>=lr.b.tot?"":" · 이 코인은 학습 효과가 없었어요. 표본이 더 쌓이면 달라질 수 있어요."}</div>`:""}
+    <div class="bttbl"><table><thead><tr><th>패턴</th><th>횟수</th><th>승률</th><th>평균</th><th>상태</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><th>${esc(r.nm)}<br><span class="flat" style="font-weight:400">${r.grp}</span></th><td>${r.n}</td><td>${(r.w/r.n*100).toFixed(0)}%</td><td class="${cls(r.avg)}">${fmtR(r.avg)}</td><td>${st(r)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="ds">${ps.apply?"꺼짐":"나쁨"} ${ps.off.length}개 · 우수 ${ps.good.length}개. 다시 계산하면 최신 캔들로 다시 학습해요.</div></div>`;
 }
 function optHTML(o,sym){
   if(!o)return"";
