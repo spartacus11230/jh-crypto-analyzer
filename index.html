@@ -39,6 +39,24 @@ h1 .with{display:none;font-size:.6em;font-weight:600;color:var(--muted);letter-s
 .logo-type{display:flex;flex-direction:column;font-family:"Archivo",var(--sans);font-stretch:112%;letter-spacing:.04em;line-height:1.02;color:var(--brand);font-size:1.45rem}
 .logo-type b{font-weight:800}.logo-type span{font-weight:500}
 @media (max-width:420px){.logo-sym{width:48px;height:48px}.logo-type{font-size:1.2rem}}
+body.locked .wrap>*:not(#lock){display:none!important}
+.lock{min-height:70vh;display:flex;align-items:center;justify-content:center}
+.lockbox{width:100%;max-width:380px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:28px 22px}
+.lockbox .logo-sym{width:64px;height:64px}
+.lockbox h2{margin:4px 0 0;font-size:1.15rem}.lockbox p{margin:0;font-size:.85rem;color:var(--muted)}
+.lockbox form{width:100%}
+.lockbox input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--soft);color:var(--ink);font:700 1.05rem var(--mono);letter-spacing:.12em;padding:10px 12px;text-align:center;text-transform:uppercase}
+.lockmsg{min-height:1.2em;font-size:.82rem;color:var(--down);font-weight:600}
+.lockadmin{width:100%;font-size:.8rem;color:var(--muted);text-align:left}.lockadmin summary{cursor:pointer}
+.lockadmin label{display:flex;flex-direction:column;gap:4px;margin:8px 0}.lockadmin input{border:1px solid var(--line);border-radius:8px;background:var(--soft);color:var(--ink);font:500 .85rem var(--mono);padding:7px 9px;letter-spacing:0;text-transform:none;text-align:left}
+.lockbox form.lockform{display:grid;grid-template-columns:1fr;gap:6px;text-align:left}
+.lockform label{font-size:.78rem;font-weight:600;color:var(--muted)}
+.lockbox input.nick{letter-spacing:0;text-transform:none;font:600 1rem var(--sans);text-align:left}
+.lockform .btn{margin-top:6px}
+.ntfybox{display:flex;flex-direction:column;gap:6px;background:var(--soft);border-radius:8px;padding:8px 10px}
+.crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:8px;align-items:center;font-size:.82rem;border-top:1px solid var(--line);padding-top:6px}
+.mono{font-family:var(--mono)}
+.newcode{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--up-soft);border-radius:8px;padding:8px 10px;font-size:.85rem}.newcode b{font-size:1.1rem;letter-spacing:.1em}
 .noticebar{display:flex;align-items:center;gap:10px;width:100%;border:0;border-radius:10px;background:var(--brandBox);color:#fff;font:600 .85rem var(--sans);padding:9px 12px;cursor:pointer;text-align:left}
 .noticebar svg{width:18px;height:18px;flex:none}
 .nb-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -265,6 +283,7 @@ details.how ul{padding-left:18px;margin:8px 0}
 </head>
 <body>
 <div class="wrap">
+  <section class="lock" id="lock" hidden></section>
   <button class="noticebar" id="noticeBar" aria-expanded="false" aria-controls="noticePanel"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg><span class="nb-text" id="noticeText">공지사항</span><span class="nb-new" id="noticeNew" hidden>NEW</span><span class="nb-more">보기</span></button>
   <section class="noticepanel" id="noticePanel" hidden></section>
   <header>
@@ -1477,6 +1496,14 @@ function renderNoticeBar(){
   $("#noticeBar").setAttribute("aria-expanded",showNotices);
 }
 function b64(str){return btoa(unescape(encodeURIComponent(str)))}
+async function ghPut(path,obj,what){
+  const base=`https://api.github.com/repos/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}/contents/${path}`,H={Authorization:"Bearer "+gh.token,Accept:"application/vnd.github+json"};
+  let sha;const g=await fetch(base+"?ref="+encodeURIComponent(gh.branch)+"&t="+Date.now(),{headers:H,cache:"no-store"});
+  if(g.ok)sha=(await g.json()).sha;else if(g.status!==404)throw {status:g.status};
+  const r=await fetch(base,{method:"PUT",headers:{...H,"Content-Type":"application/json"},body:JSON.stringify({message:what,content:b64(JSON.stringify(obj,null,2)+"\n"),branch:gh.branch,...(sha?{sha}:{})})});
+  if(!r.ok)throw {status:r.status};
+}
+function ghErr(e){return e.status===401?"토큰이 맞지 않거나 만료됐어요. 관리자 설정에서 다시 넣어주세요.":e.status===403?"토큰에 이 저장소 쓰기 권한(Contents: Read and write)이 없어요.":e.status===404?"저장소를 찾지 못했어요. 아이디·저장소 이름을 확인해 주세요.":e.status===409||e.status===422?"동시에 다른 저장이 있었어요. 다시 눌러주세요.":"GitHub에 저장하지 못했어요. 인터넷 연결을 확인해 주세요."}
 async function ghSave(list,what){
   if(!gh.token){nMsg="먼저 관리자 설정에서 GitHub 토큰을 저장해 주세요.";renderNotices();return false}
   nBusy=true;nMsg="저장 중…";renderNotices();
@@ -1506,13 +1533,80 @@ function renderNotices(){
       <label>제목<input type="text" data-nf="title" maxlength="80" placeholder="예: 10/24 업데이트 · 횡보장 필터 추가" value="${esc(nDraft.title)}"></label>
       <label>내용<textarea data-nf="body" placeholder="무엇이 바뀌었는지 적어주세요. 줄바꿈 그대로 보여요.">${esc(nDraft.body)}</textarea></label>
       <label class="chk"><input type="checkbox" data-nf="imp" ${nDraft.imp?"checked":""}>중요 공지로 표시</label>
-      <div class="jbtns"><button class="btn" data-nact="post" ${nBusy?"disabled":""}>게시하기</button><button class="mini ghost" data-nact="dl">notices.json 파일로 받기</button><button class="mini ghost" data-nact="setup">관리자 설정</button></div></div>`;
+      <div class="jbtns"><button class="btn" data-nact="post" ${nBusy?"disabled":""}>게시하기</button><button class="mini ghost" data-nact="dl">notices.json 파일로 받기</button><button class="mini ghost" data-nact="setup">관리자 설정</button></div></div>
+      ${codesHTML()}`;
   el.innerHTML=`<div class="np-head"><h2>공지사항</h2><button class="mini ghost" data-nact="close">닫기</button></div>
     ${items}
     ${nMsg?`<div class="msg ${/했어요/.test(nMsg)?"up":"down"}">${esc(nMsg)}</div>`:""}
     ${nAdmin?(gh.token&&nAdmin!=="setup"?writer:setup):`<div><button class="mini ghost" data-nact="admin">관리자</button></div>`}`;
 }
 function toggleNotices(force){showNotices=force!=null?force:!showNotices;if(showNotices&&notices[0])store.set("bb.nseen",String(notices[0].id));renderNotices();if(showNotices){loadNotices();$("#noticePanel").scrollIntoView({behavior:"smooth",block:"start"})}}
+
+
+/* ---------- 입장 코드: access.json in the repo holds only SHA-256 hashes; a verified device remembers its code ---------- */
+let acc={codes:[]},accLoaded=false,accMsg="",showCodes=false,newCode=null,codeDel=null,myCodes=store.get("bb.mycodes",{});
+async function sha(str){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("jhca:"+str));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+function normCode(c){return String(c||"").toUpperCase().replace(/[^A-Z0-9]/g,"")}
+function genCode(){const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789",r=new Uint32Array(8);crypto.getRandomValues(r);const c=[...r].map(x=>A[x%A.length]).join("");return c.slice(0,4)+"-"+c.slice(4)}
+async function loadAccess(){
+  const tries=["./access.json?t="+Date.now(),`https://raw.githubusercontent.com/${gh.owner}/${gh.repo}/${gh.branch}/access.json?t=${Date.now()}`];
+  for(const u of tries){try{const r=await fetch(u,{cache:"no-store"});if(r.ok){const j=await r.json();if(j&&Array.isArray(j.codes)){acc=j;accLoaded="ok";return}}else if(r.status===404&&u.startsWith("./")){accLoaded="none";return}}catch(e){}}
+  accLoaded=accLoaded||"fail";
+}
+function devName(){const u=navigator.userAgent||"";const os=/iPhone|iPad/.test(u)?"아이폰":/Android/.test(u)?"안드로이드":/Mac/.test(u)?"맥":/Windows/.test(u)?"윈도우":"기타";const br=/SamsungBrowser/.test(u)?"삼성 인터넷":/CriOS|Chrome/.test(u)?"크롬":/Safari/.test(u)?"사파리":/Firefox/.test(u)?"파이어폭스":"브라우저";return os+" · "+br}
+function nowTxt(){const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`}
+/* One-time entry alert to the owner's ntfy topic. A plain-text POST with query params needs no preflight. */
+function ntfySend(topic,title,msg,tags){if(!topic)return Promise.resolve(false);
+  return fetch(`https://ntfy.sh/${encodeURIComponent(topic)}?title=${encodeURIComponent(title)}&tags=${encodeURIComponent(tags||"bell")}`,{method:"POST",body:msg,mode:"no-cors",keepalive:true}).then(()=>true,()=>false)}
+async function gatePass(){
+  if(gh.token)return true;
+  await loadAccess();
+  if(accLoaded==="none"||(accLoaded==="ok"&&!acc.codes.length))return true;
+  const mine=store.get("bb.acc","");
+  if(accLoaded==="fail")return !!mine;
+  return !!mine&&acc.codes.some(c=>c.h===mine);
+}
+function showLock(msg){
+  document.body.classList.add("locked");const el=$("#lock");el.hidden=false;
+  el.innerHTML=`<div class="lockbox"><svg class="logo-sym" viewBox="0 0 120 120" aria-hidden="true"><rect width="120" height="120" rx="26" fill="var(--brandBox)"/><g transform="translate(6 -3)" fill="#ffffff"><path d="M46 30 H58 V76 A20 20 0 0 1 18 76 H30 A8 8 0 0 0 46 76 Z"/><rect x="78" y="30" width="12" height="66"/><path d="M58 58 L78 46 L78 58 L58 70 Z"/></g><rect x="100" y="18" width="6" height="6" fill="#19b5fe"/></svg>
+    <h2>입장 코드를 입력하세요</h2><p>초대받은 분만 이용할 수 있어요. 받은 코드를 한 번 입력하면 이 기기에서는 다시 묻지 않아요.</p>
+    <form id="lockForm" class="lockform"><label for="lockNick">닉네임</label><input id="lockNick" class="nick" autocomplete="nickname" maxlength="12" placeholder="2~12자" value="${esc(store.get("bb.nick",""))}">
+      <label for="lockInput">입장 코드</label><input id="lockInput" autocomplete="one-time-code" autocapitalize="characters" placeholder="예: AB12-CD34" maxlength="20"><button class="btn" type="submit">입장하기</button></form>
+    <div class="lockmsg" id="lockMsg">${msg?esc(msg):""}</div>
+    <details class="lockadmin"><summary>관리자 로그인</summary><label for="lockTok">GitHub 토큰<input id="lockTok" type="password" autocomplete="off" placeholder="공지용 GitHub 토큰"></label><button class="mini" id="lockTokBtn" type="button">관리자로 들어가기</button></details></div>`;
+  $("#lockForm").addEventListener("submit",async e=>{e.preventDefault();const nick=$("#lockNick").value.trim(),c=normCode($("#lockInput").value);
+    if(nick.length<2){$("#lockMsg").textContent="닉네임을 2자 이상 적어주세요.";return}if(!c){$("#lockMsg").textContent="입장 코드를 입력해 주세요.";return}
+    $("#lockMsg").textContent="확인 중…";await loadAccess();const h=await sha(c);const hit=acc.codes.find(x=>x.h===h);
+    if(hit){store.set("bb.acc",h);store.set("bb.nick",nick);
+      if(acc.ntfy&&store.get("bb.logged","")!==h){await ntfySend(acc.ntfy,"JH Crypto Analyzer 첫 입장",`${nick} · 코드: ${hit.name||"이름 없음"} · ${nowTxt()} · ${devName()}`,"bell");store.set("bb.logged",h)}
+      unlock()}else $("#lockMsg").textContent=accLoaded==="fail"?"코드를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.":"코드가 맞지 않아요. 다시 확인해 주세요."});
+  $("#lockTokBtn").addEventListener("click",async()=>{const t=$("#lockTok").value.trim();if(!t)return;$("#lockMsg").textContent="확인 중…";
+    try{const r=await fetch(`https://api.github.com/repos/${gh.owner}/${gh.repo}`,{headers:{Authorization:"Bearer "+t,Accept:"application/vnd.github+json"}});
+      if(r.ok){const j=await r.json();if(j.permissions&&j.permissions.push===false)throw 0;gh.token=t;store.set("bb.gh",gh);unlock()}else throw 0}
+    catch(e){$("#lockMsg").textContent="토큰을 확인하지 못했어요. jh-crypto-analyzer 저장소 토큰인지 확인해 주세요."}});
+}
+let started=false;
+function unlock(){document.body.classList.remove("locked");$("#lock").hidden=true;$("#lock").innerHTML="";if(!started){started=true;startApp()}}
+function codesHTML(){
+  if(!showCodes)return `<button class="mini ghost" data-cact="open">입장 코드 관리</button>`;
+  const list=acc.codes.length?acc.codes.map(c=>`<div class="crow"><b>${esc(c.name||"이름 없음")}</b><span class="mono">${myCodes[c.h]?esc(myCodes[c.h]):"••••-••••"}</span><span class="nd">${esc(c.created||"")}</span><button class="mini ghost" data-cdel="${c.h}">${codeDel===c.h?"한 번 더 누르면 삭제":"삭제"}</button></div>`).join(""):`<div class="ds">아직 코드가 없어요. 코드가 하나도 없으면 누구나 들어올 수 있어요.</div>`;
+  return `<div class="nadmin"><b>입장 코드 관리</b>
+    <div class="ds">사람마다 코드를 따로 만들어 보내주세요. 코드를 삭제하면 그 코드로 들어온 기기는 다음에 열 때 다시 잠겨요. 코드 원문은 이 기기에만 보이고, 저장소에는 암호화된 값만 저장돼요.</div>
+    ${newCode?`<div class="newcode">새 코드 <b class="mono">${esc(newCode)}</b><button class="mini" data-cact="copy">복사</button></div>`:""}
+    ${list}
+    <div class="ntfybox"><b>첫 입장 알림 (ntfy)</b>
+      ${acc.ntfy?`<div class="ds">ntfy 앱에서 이 주제를 구독하세요: <b class="mono">${esc(acc.ntfy)}</b> <button class="mini" data-cact="copytopic">복사</button></div>
+        <div class="jbtns"><button class="mini" data-cact="testntfy">테스트 알림 보내기</button><button class="mini ghost" data-cact="newtopic">주제 새로 만들기</button><button class="mini ghost" data-cact="offntfy">알림 끄기</button></div>`
+      :`<div class="ds">켜면 누가 코드로 처음 들어올 때 닉네임·코드 이름·시간·기기가 휴대폰 알림으로 와요. 한 사람당 한 번만 와요.</div><button class="mini" data-cact="newtopic">알림 켜기</button>`}</div>
+    <label>받을 사람 이름<input type="text" data-nf="cname" maxlength="20" placeholder="예: 민수"></label>
+    <div class="jbtns"><button class="btn" data-cact="new">코드 만들기</button><button class="mini ghost" data-cact="close">접기</button></div>
+    ${accMsg?`<div class="msg ${/했어요/.test(accMsg)?"up":"down"}">${esc(accMsg)}</div>`:""}</div>`;
+}
+async function saveCodes(next,what){
+  try{accMsg="저장 중…";renderNotices();await ghPut("access.json",next,what);acc=next;accMsg="저장했어요. 1~2분 뒤 적용돼요.";}
+  catch(e){accMsg=ghErr(e)}
+  renderNotices();
+}
 
 /* ---------- events ---------- */
 document.querySelectorAll("#tfSeg button").forEach(b=>{b.setAttribute("aria-pressed",b.dataset.tf===tf);b.addEventListener("click",()=>{if(tf===b.dataset.tf)return;tf=b.dataset.tf;store.set("bb.tf",tf);document.querySelectorAll("#tfSeg button").forEach(x=>x.setAttribute("aria-pressed",x.dataset.tf===tf));coins.forEach(s=>{if(state[s]){delete state[s].main;delete state[s].htf;delete state[s].cacheKey}});slowAt=0;render();refreshAll(true)})});
@@ -1522,6 +1616,19 @@ $("#noticePanel").addEventListener("input",e=>{const f=e.target.dataset&&e.targe
   if(f==="title"||f==="body"){nDraft[f]=e.target.value;store.set("bb.ndraft",nDraft)}else if(f==="imp"){nDraft.imp=e.target.checked;store.set("bb.ndraft",nDraft)}});
 $("#noticePanel").addEventListener("change",e=>{if(e.target.dataset&&e.target.dataset.nf==="imp"){nDraft.imp=e.target.checked;store.set("bb.ndraft",nDraft)}});
 $("#noticePanel").addEventListener("click",async e=>{
+  const ca=e.target.closest("[data-cact]");if(ca){const a=ca.dataset.cact;
+    if(a==="open"){showCodes=true;accMsg="";await loadAccess();renderNotices();return}
+    if(a==="close"){showCodes=false;newCode=null;renderNotices();return}
+    if(a==="newtopic"){const A="abcdefghijkmnpqrstuvwxyz23456789",r=new Uint32Array(14);crypto.getRandomValues(r);const t="jhca-"+[...r].map(x=>A[x%A.length]).join("");
+      await loadAccess();await saveCodes({...acc,codes:acc.codes||[],ntfy:t},"방문 알림 주제 설정");return}
+    if(a==="offntfy"){await loadAccess();const n={...acc};delete n.ntfy;await saveCodes(n,"방문 알림 끄기");return}
+    if(a==="copytopic"){try{await navigator.clipboard.writeText(acc.ntfy);accMsg="주제 이름을 복사했어요."}catch(err){accMsg="길게 눌러 직접 복사해 주세요."}renderNotices();return}
+    if(a==="testntfy"){await ntfySend(acc.ntfy,"JH Crypto Analyzer 테스트","알림이 잘 와요 · "+nowTxt()+" · "+devName(),"white_check_mark");accMsg="테스트 알림을 보냈어요. ntfy 앱을 확인해 보세요.";renderNotices();return}
+    if(a==="copy"){try{await navigator.clipboard.writeText(newCode);accMsg="복사했어요."}catch(err){accMsg="길게 눌러 직접 복사해 주세요."}renderNotices();return}
+    if(a==="new"){const inp=$("#noticePanel").querySelector('[data-nf="cname"]'),nm=(inp&&inp.value.trim())||"이름 없음";const c=genCode(),h=await sha(normCode(c));
+      await loadAccess();const d0=new Date();const next={...acc,codes:[...(acc.codes||[]),{h,name:nm,created:`${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,"0")}-${String(d0.getDate()).padStart(2,"0")}`}]};
+      myCodes[h]=c;store.set("bb.mycodes",myCodes);newCode=c;await saveCodes(next,"입장 코드 추가: "+nm);return}}
+  const cd=e.target.closest("[data-cdel]");if(cd){const h=cd.dataset.cdel;if(codeDel===h){codeDel=null;await loadAccess();await saveCodes({...acc,codes:acc.codes.filter(c=>c.h!==h)},"입장 코드 삭제")}else{codeDel=h;renderNotices()}return}
   const d=e.target.closest("[data-ndel]");if(d){const id=d.dataset.ndel;if(nDel===id){nDel=null;await ghSave(notices.filter(n=>String(n.id)!==id),"공지 삭제")}else{nDel=id;renderNotices()}return}
   const b=e.target.closest("[data-nact]");if(!b)return;const a=b.dataset.nact,P=$("#noticePanel");
   if(a==="close"){toggleNotices(false);return}
@@ -1534,7 +1641,6 @@ $("#noticePanel").addEventListener("click",async e=>{
     const item={id:Date.now().toString(36),date,title:t,body:nDraft.body.trim(),important:!!nDraft.imp};
     if(await ghSave([item,...notices],"공지: "+t)){nDraft={title:"",body:"",imp:false};store.set("bb.ndraft",nDraft);store.set("bb.nseen",item.id);renderNotices()}}
 });
-loadNotices();
 
 document.querySelectorAll(".cats button").forEach(b=>b.addEventListener("click",()=>setCat(b.dataset.cat)));
 document.querySelectorAll("#wSeg button").forEach(b=>b.addEventListener("click",()=>{wTab=b.dataset.w;store.set("bb.wtab",wTab);wOpen=null;renderWhale()}));
@@ -1582,8 +1688,9 @@ $("#addForm").addEventListener("submit",e=>{
   if(!v)return;if(!coins.includes(v)){coins.unshift(v);store.set("bb.coins",coins)}$("#addInput").value="";open=v;render();refreshAll(true);
 });
 
-setCat(cat);
-if(cat==="chart")refreshAll(true);schedule();
+function startApp(){setCat(cat);if(cat==="chart")refreshAll(true);schedule();loadNotices()}
+document.body.classList.add("locked");
+gatePass().then(ok=>{if(ok)unlock();else showLock(store.get("bb.acc","")?"입장 코드가 바뀌었거나 삭제됐어요. 새 코드를 입력해 주세요.":"")});
 })();
 </script>
 </body>
