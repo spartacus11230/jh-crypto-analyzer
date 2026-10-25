@@ -403,8 +403,8 @@ function tradePlan(a,dir,sym){
   const mm=cfg.slMode==="margin",riskAmt=riskUSD(),qty=mm?cfg.marginAmt*lev/entry:riskAmt/d,notional=qty*entry,margin=notional/lev,fees=notional*FEE*2;
   const swingHi=Math.max(...c.slice(-50).map(x=>x.high)),swingLo=Math.min(...c.slice(-50).map(x=>x.low));
   const wall=long?(swingHi>entry&&swingHi<tp1?swingHi:null):(swingLo<entry&&swingLo>tp1?swingLo:null);const tpEnd=tp2!=null?tp2:tp1;
-  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,opp,prog,chase,am,rec:(()=>{const r=structStop(c,fresh?sig.i:L-1,long,entry,sig?sig.inv:am?am.inv:null),pc=r.d/entry*100,safe=Math.max(1,Math.floor(100/(pc+MMR*100+0.3))),byLoss=Math.max(1,Math.floor(cfg.maxLoss/pc));
-    return {...r,pct:pc,lev:Math.min(safe,byLoss),safe,byLoss,lossNow:pc*lev,liqBefore:pc/100>=1/lev-MMR,tp1:entry+(long?1:-1)*1.5*r.d,tp2:entry+(long?1:-1)*3*r.d}})(),moved:sig?(a.last-sig.price)/sig.price*100:0};
+  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,opp,prog,chase,am,rec:(()=>{const r=recStop(c,fresh?sig.i:L-1,long,entry,sig?sig.inv:am?am.inv:null);
+    return {...r,lossNow:r.pct*lev,liqBefore:r.pct/100>=1/lev-MMR,tp1:entry+(long?1:-1)*1.5*r.d,tp2:entry+(long?1:-1)*3*r.d}})(),moved:sig?(a.last-sig.price)/sig.price*100:0};
 }
 function pctTxt(v){return (v>=0?"+":"−")+Math.abs(v).toFixed(2)+"%"}
 function qtyTxt(q){return q>=100?Math.round(q).toLocaleString("en-US"):q>=1?q.toFixed(2):q.toPrecision(3)}
@@ -439,6 +439,7 @@ function planHTML(a,sym){
       ${P.am?`<div class="lvr inv"><span class="k">무효 가격</span><span class="v">${fmt(P.am.inv)}</span><span class="n">체결 전에 종가가 여기를 넘으면 대기 취소</span></div>`:""}
       ${P.sig?`<div class="lvr inv"><span class="k">무효 가격</span><span class="v">${fmt(P.sig.inv)}</span><span class="n">${SETUP_NM[P.sig.setup]} 신호의 차트 구조 기준 · 여기 닿으면 신호 끝${cfg.slMode==="margin"?(Math.abs(P.entry-P.sl)<Math.abs(P.entry-P.sig.inv)*0.85?" · <b>증거금 손절가가 이보다 가까워서, 신호가 살아 있어도 흔들림에 먼저 손절될 수 있어요</b>":Math.abs(P.entry-P.sl)>Math.abs(P.entry-P.sig.inv)*1.15?" · <b>증거금 손절가보다 이 가격이 먼저 와요. 여기서 먼저 정리하는 걸 권해요</b>":""):""}</span></div>`:""}
       <div class="lvr sl"><span class="k">손절가</span><span class="v">${fmt(P.sl)}</span><span class="n">가격 ${pctTxt(pE(P.sl))} · 수익률 ${roe(pE(P.sl))}${P.clamp?" · "+P.clamp:""}</span></div>
+      <div class="lvr sl rec"><span class="k">추천 손절가</span><span class="v">${fmt(P.rec.sl)}</span><span class="n">가격 ${pctTxt(pE(P.rec.sl))} · ${esc(P.rec.why)} · 레버리지와 무관한 차트 기준 · <b>레버리지 ${P.rec.lev}배 이하</b>${P.rec.lev<P.lev?` (지금 ${P.lev}배는 높아요)`:""}</span></div>
       <div class="lvr tp"><span class="k">목표가 1</span><span class="v">${fmt(P.tp1)}</span><span class="n">가격 ${pctTxt(pE(P.tp1))} · 수익률 ${roe(pE(P.tp1))} · 손익비 ${P.r1} · 절반 익절</span></div>
       ${P.tp2!=null?`<div class="lvr tp"><span class="k">목표가 2</span><span class="v">${fmt(P.tp2)}</span><span class="n">가격 ${pctTxt(pE(P.tp2))} · 수익률 ${roe(pE(P.tp2))} · 손익비 ${P.r2} · 나머지 정리</span></div>`
         :`<div class="lvr tp"><span class="k">나머지</span><span class="v">트레일링</span><span class="n">목표가 1 이후 최고${L?"":"(최저)"}가에서 ATR ${P.trail}배(약 ${fmt(P.trail*P.atr)}) 떨어지면 정리. 추세가 길게 갈 때 수익을 더 끌고 가요.</span></div>`}
@@ -1186,7 +1187,8 @@ function candleInfo(a,sym){
       <div class="ds"><b>${sg.end?END_NM[sg.end.reason]+` · ${fmtTime(sg.end.t)}`:sg.be!=null?"진행 중 · 목표1 도달, 본전 보호":"진행 중인 신호"}</b></div>
       <div class="cgrid"><span class="k">진입 확정가</span><span class="v">${fmt(sg.price)}</span><span class="n">신호 캔들 종가</span>
       <span class="k">무효 가격</span><span class="v">${fmt(sg.inv)}</span><span class="n">${pE(sg.inv)} · 차트 구조</span>
-      <span class="k dn">손절가</span><span class="v dn">${fmt(lv.sl)}</span><span class="n">${pE(lv.sl)}</span>
+      <span class="k dn">손절가</span><span class="v dn">${fmt(lv.sl)}</span><span class="n">${pE(lv.sl)} · 설정 기준</span>
+      ${(()=>{const rs=recStop(a.candles,si,long,sg.price,sg.inv);return `<span class="k dn">추천 손절가</span><span class="v dn">${fmt(rs.sl)}</span><span class="n">${pE(rs.sl)} · ${esc(rs.why)} · 레버리지 ${rs.lev}배 이하</span>`})()}
       <span class="k upc">목표가 1</span><span class="v upc">${fmt(lv.tp1)}</span><span class="n">${pE(lv.tp1)} · 절반</span>
       ${lv.tp2!=null?`<span class="k upc">목표가 2</span><span class="v upc">${fmt(lv.tp2)}</span><span class="n">${pE(lv.tp2)}</span>`:`<span class="k upc">나머지</span><span class="v upc">트레일링</span><span class="n">ATR ${lv.trail}배</span>`}</div>
       <div class="ds">${sg.end?`결과 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`:`지금 가격 ${fmt(a.last)} · 신호 이후 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`} 실제 체결은 다음 캔들 시가 근처라 조금 다를 수 있어요.</div></div>`}
@@ -1396,6 +1398,9 @@ function structStop(c,i,long,entry,inv){
   if(inv!=null&&sg*(entry-inv)>0){const d=Math.max(STOP_MIN*A,Math.min(3.5*A,sg*(entry-inv)));return {sl:entry-sg*d,d,why:`신호 무효 가격 기준 (ATR ${STOP_MIN}~3.5배로 조정)`,A,all:cands}}
   return {sl:entry-sg*1.5*A,d:1.5*A,why:"가까운 구조가 없어 평소 흔들림(ATR)의 1.5배",A,all:cands};
 }
+/* Leverage-free recommended stop + the leverage that fits it (margin mode: max loss % and no liquidation first; chart mode: no liquidation first). */
+function recStop(c,i,long,entry,inv){const r=structStop(c,i,long,entry,inv),pc=r.d/entry*100,safe=Math.max(1,Math.floor(100/(pc+MMR*100+0.3))),byLoss=Math.max(1,Math.floor(cfg.maxLoss/pc));
+  return {...r,pct:pc,safe,byLoss,lev:cfg.slMode==="margin"?Math.min(safe,byLoss):safe}}
 function levelsAt(c,i,long,entry,p,inv){
   p=p||DEF_P[tf];
   if(cfg.slMode==="margin"){const atr=atrAt(c,i),pct=cfg.maxLoss/Math.max(1,cfg.lev),d=entry*pct/100,sg=long?1:-1;
