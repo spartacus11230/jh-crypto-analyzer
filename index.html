@@ -254,6 +254,10 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid
 .lvr .v{font-family:var(--mono);font-weight:600;font-size:1rem;font-variant-numeric:tabular-nums}
 .lvr .n{grid-column:2;font-size:.75rem;color:var(--muted)}
 .lvr.sl .k,.lvr.sl .v{color:var(--down)} .lvr.tp .k,.lvr.tp .v{color:var(--up)} .lvr.lq .k,.lvr.lq .v{color:var(--liq)} .lvr.inv .k{color:var(--muted)}
+.recsl{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;display:grid;gap:6px;background:var(--surface)}
+.recsl .rh{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}.recsl .rh span{font-size:.75rem;color:var(--muted)}
+.recsl .rr{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}.recsl .rr .v{font-family:var(--mono);font-weight:700;font-size:1.15rem;color:var(--down)}.recsl .rr .n{font-size:.8rem;color:var(--muted)}
+.recsl .mini{justify-self:start}
 .warn{font-size:.82rem;background:var(--down-soft);color:var(--ink);border-radius:8px;padding:8px 10px;border-left:3px solid var(--down)}
 .warn.soft{background:var(--flat-soft);border-left-color:var(--flat)}
 .okline{font-size:.82rem;color:var(--muted)}
@@ -399,7 +403,8 @@ function tradePlan(a,dir,sym){
   const mm=cfg.slMode==="margin",riskAmt=riskUSD(),qty=mm?cfg.marginAmt*lev/entry:riskAmt/d,notional=qty*entry,margin=notional/lev,fees=notional*FEE*2;
   const swingHi=Math.max(...c.slice(-50).map(x=>x.high)),swingLo=Math.min(...c.slice(-50).map(x=>x.low));
   const wall=long?(swingHi>entry&&swingHi<tp1?swingHi:null):(swingLo<entry&&swingLo>tp1?swingLo:null);const tpEnd=tp2!=null?tp2:tp1;
-  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,opp,prog,chase,am,moved:sig?(a.last-sig.price)/sig.price*100:0};
+  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,opp,prog,chase,am,rec:(()=>{const r=structStop(c,fresh?sig.i:L-1,long,entry,sig?sig.inv:am?am.inv:null),pc=r.d/entry*100,safe=Math.max(1,Math.floor(100/(pc+MMR*100+0.3))),byLoss=Math.max(1,Math.floor(cfg.maxLoss/pc));
+    return {...r,pct:pc,lev:Math.min(safe,byLoss),safe,byLoss,lossNow:pc*lev,liqBefore:pc/100>=1/lev-MMR,tp1:entry+(long?1:-1)*1.5*r.d,tp2:entry+(long?1:-1)*3*r.d}})(),moved:sig?(a.last-sig.price)/sig.price*100:0};
 }
 function pctTxt(v){return (v>=0?"+":"−")+Math.abs(v).toFixed(2)+"%"}
 function qtyTxt(q){return q>=100?Math.round(q).toLocaleString("en-US"):q>=1?q.toFixed(2):q.toPrecision(3)}
@@ -439,6 +444,13 @@ function planHTML(a,sym){
         :`<div class="lvr tp"><span class="k">나머지</span><span class="v">트레일링</span><span class="n">목표가 1 이후 최고${L?"":"(최저)"}가에서 ATR ${P.trail}배(약 ${fmt(P.trail*P.atr)}) 떨어지면 정리. 추세가 길게 갈 때 수익을 더 끌고 가요.</span></div>`}
       <div class="lvr lq"><span class="k">청산가</span><span class="v">${fmt(P.liq)}</span><span class="n">${P.lev}배 격리 기준 약 ${pctTxt(pE(P.liq))}</span></div>
     </div>
+    ${(()=>{const R=P.rec,mm=cfg.slMode==="margin",pE2=v=>pctTxt((v-P.entry)/P.entry*100);return `<div class="recsl"><div class="rh"><b>차트 추천 손절가</b><span>레버리지와 무관하게 차트 구조로 정한 값</span></div>
+      <div class="rr"><span class="v">${fmt(R.sl)}</span><span class="n">가격 ${pE2(R.sl)} · ${esc(R.why)}${/ATR/.test(R.why)?"":` · 평소 흔들림(ATR)의 ${(R.d/R.A).toFixed(1)}배`}</span></div>
+      ${R.pct>MAXSL[tf]?`<div class="warn">차트 구조상 손절이 가격 ${R.pct.toFixed(2)}%나 떨어져 있어요. ${tfShort(tf)} 최대 손절폭 ${MAXSL[tf]}%보다 커서, 이 코인은 지금 ${tfShort(tf)}로 들어가기엔 변동이 너무 커요. ${tf==="15m"?"4시간봉":tf==="4h"?"일봉":"더 긴 흐름"}으로 보는 걸 권해요.</div>`:""}
+      <div class="ds">이 손절가 기준 목표 · 목표1 ${fmt(R.tp1)} (${pE2(R.tp1)}) · 목표2 ${fmt(R.tp2)} (${pE2(R.tp2)})</div>
+      ${!mm?`<div class="ds"><b>청산 안전 레버리지 ${R.safe}배 이하</b> · 차트 기준 모드는 수량을 1회 손실 한도(시드의 ${cfg.risk}%)로 계산해서, 레버리지는 청산만 피하면 돼요.</div>`:`<div class="ds"><b>추천 레버리지 ${R.lev}배 이하</b> · 이 손절가에서 증거금 손실을 ${cfg.maxLoss}% 안으로 지키려면 ${R.byLoss}배, 손절 전에 청산되지 않으려면 ${R.safe}배까지예요.</div>`}
+      ${!mm?"":R.liqBefore?`<div class="warn">지금 ${P.lev}배로는 이 손절가에 닿기 전에 <b>청산돼요</b>. 레버리지를 ${R.lev}배 이하로 낮추세요.</div>`:R.lossNow>cfg.maxLoss+0.5?`<div class="warn soft">지금 ${P.lev}배로 이 손절가를 쓰면 손절 시 증거금의 약 <b>${R.lossNow.toFixed(0)}%</b>를 잃어요 (설정한 최대 손실 ${cfg.maxLoss}%보다 큼). ${R.lev}배로 낮추면 ${(R.pct*R.lev).toFixed(0)}% 안쪽이에요.</div>`:`<div class="okline">지금 ${P.lev}배면 이 손절가에서 손실은 증거금의 약 ${R.lossNow.toFixed(0)}%예요.</div>`}
+      ${mm&&Math.abs(R.sl-P.sl)/P.entry>0.001?`<button class="mini" data-slmode="chart">이 손절가로 계획 보기 (차트 기준)</button>`:""}</div>`})()}
     ${P.recent&&!P.fresh&&P.adverse>0?`<div class="warn">신호가(${fmt(P.sig.price)})에서 ${L?"롱":"숏"} 반대 방향으로 ${P.adverse.toFixed(2)}% 움직였어요. 신호 자리를 놓친 상태라, 지금 진입하면 불리한 가격이에요. 다음 신호를 기다리는 걸 권해요.</div>`:""}
     ${P.liqNow?`<div class="warn"><b>신호가(${fmt(P.sig.price)})에 ${P.lev}배로 들어갔다면 청산가는 ${fmt(P.liqSig)}인데, 지금 가격(${fmt(a.last)})이 이미 그걸 넘었어요.</b> 이 레버리지는 이 코인 변동에 비해 너무 높아요.</div>`:""}
     ${P.tight?`<div class="warn">손절폭(가격 ${(P.d/P.entry*100).toFixed(2)}%)이 이 코인 ${tfShort(tf)}의 평균 흔들림(약 ${(P.atr/P.entry*100).toFixed(2)}%)보다 좁아서, 방향이 맞아도 흔들림에 손절될 가능성이 높아요. 레버리지를 낮추거나 최대 손실 %를 올리면 손절폭이 넓어져요.</div>`:""}
@@ -1368,12 +1380,29 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshAll
 
 /* ---------- levels shared by backtest and journal ---------- */
 function atrAt(c,i){let s=0,n=0;for(let k=Math.max(1,i-13);k<=i;k++){const x=c[k],pc=c[k-1].close;s+=Math.max(x.high-x.low,Math.abs(x.high-pc),Math.abs(x.low-pc));n++}return n?s/n:c[i].close*0.01}
+/* Recommended stop from chart structure, independent of leverage:
+   candidates = recent swing highs/lows (zigzag 1.5 ATR, last 60 candles) beyond the entry with a 0.25 ATR buffer against wick hunts,
+   the last 3 candles' extreme, and the signal's invalidation price. Take the nearest one that is at least 1.5 ATR away (closer gets
+   shaken out by normal noise; 1.5 tested best against 1 / 1.25 / 2 and the plain invalidation price) and at most 3.5 ATR away. Nothing fits → signal invalidation clamped, else 1.5 ATR. */
+let STOP_MODE="struct",STOP_MIN=1.5;
+function structStop(c,i,long,entry,inv){
+  const A=atrAt(c,i),sg=long?1:-1,w=c.slice(Math.max(0,i-60),i+1),off=Math.max(0,i-60),buf=0.25*A,cands=[];
+  zigzag(w,1.5*A).forEach(pv=>{if(pv.tent&&pv.i>=w.length-1)return;if(long&&pv.t==="L"&&pv.p<entry)cands.push({sl:pv.p-buf,why:`직전 저점 ${fmt(pv.p)} 아래`,ix:off+pv.i});if(!long&&pv.t==="H"&&pv.p>entry)cands.push({sl:pv.p+buf,why:`직전 고점 ${fmt(pv.p)} 위`,ix:off+pv.i})});
+  const l3=c.slice(Math.max(0,i-2),i+1),ex=long?Math.min(...l3.map(x=>x.low)):Math.max(...l3.map(x=>x.high));
+  if(sg*(entry-ex)>0)cands.push({sl:ex-sg*buf,why:`최근 3캔들 ${long?"저점":"고점"} ${fmt(ex)} ${long?"아래":"위"}`});
+  if(inv!=null&&sg*(entry-inv)>0)cands.push({sl:inv,why:"신호 무효 가격 (패턴 구조)"});
+  const ok=cands.map(x=>({...x,d:sg*(entry-x.sl)})).filter(x=>x.d>=STOP_MIN*A&&x.d<=3.5*A).sort((a,b)=>a.d-b.d);
+  if(ok.length)return {...ok[0],A,all:cands};
+  if(inv!=null&&sg*(entry-inv)>0){const d=Math.max(STOP_MIN*A,Math.min(3.5*A,sg*(entry-inv)));return {sl:entry-sg*d,d,why:`신호 무효 가격 기준 (ATR ${STOP_MIN}~3.5배로 조정)`,A,all:cands}}
+  return {sl:entry-sg*1.5*A,d:1.5*A,why:"가까운 구조가 없어 평소 흔들림(ATR)의 1.5배",A,all:cands};
+}
 function levelsAt(c,i,long,entry,p,inv){
   p=p||DEF_P[tf];
   if(cfg.slMode==="margin"){const atr=atrAt(c,i),pct=cfg.maxLoss/Math.max(1,cfg.lev),d=entry*pct/100,sg=long?1:-1;
     return {d,atr,clamp:`증거금의 ${cfg.maxLoss}% 손실 지점 (${cfg.lev}배 기준 가격 ${pct.toFixed(2)}%)`,wild:false,tight:d<atr,sl:entry-sg*d,tp1:entry+sg*p.r1*d,tp2:p.trail?null:entry+sg*p.r2*d,r1:p.r1,r2:p.r2,trail:p.trail}}
   const atr=atrAt(c,i),win=c.slice(Math.max(0,i-9),i+1);let d,clamp="";
-  if(inv!=null&&(long?inv<entry:inv>entry)){
+  if(STOP_MODE==="struct"){const st=structStop(c,i,long,entry,inv);d=st.d;clamp=st.why}
+  else if(inv!=null&&(long?inv<entry:inv>entry)){
     /* The signal's own invalidation price (chart structure) is the stop. */
     d=Math.abs(entry-inv);const lo=0.6*atr,hi=Math.max(p.sl[1],3)*atr;clamp="신호 무효 가격(차트 구조) 기준";
     if(d<lo){d=lo;clamp="무효 가격이 너무 가까워서 ATR 0.6배로 넓혔어요"}else if(d>hi){d=hi;clamp=`무효 가격이 너무 멀어서 ATR ${+(hi/atr).toFixed(1)}배로 줄였어요`}
