@@ -405,6 +405,31 @@ header{gap:4px}
 /* notice bar: same fill as the selected timeframe button */
 .noticebar{background:color-mix(in srgb,var(--accent) 15%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);color:var(--accent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 10%,transparent),var(--shadow)}
 .noticebar:hover{background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
+
+.scenbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.scb{border:1px solid var(--line);background:var(--surface);color:var(--ink);font:700 .88rem var(--sans);padding:10px 12px;border-radius:12px;cursor:pointer;box-shadow:var(--shadow)}
+.scb.up.on{background:color-mix(in srgb,var(--up) 15%,var(--surface));color:var(--up);border-color:color-mix(in srgb,var(--up) 50%,transparent)}
+.scb.down.on{background:color-mix(in srgb,var(--down) 15%,var(--surface));color:var(--down);border-color:color-mix(in srgb,var(--down) 50%,transparent)}
+.scencard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:grid;gap:8px;box-shadow:var(--shadow)}
+.scencard.sc-up{border-color:color-mix(in srgb,var(--up) 35%,var(--line))}.scencard.sc-down{border-color:color-mix(in srgb,var(--down) 35%,var(--line))}
+.scencard .sh{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px}.scencard .sh b{font-size:.95rem}.scencard .sh>span{font-family:var(--mono);font-weight:700}.scencard .sh .lean{font-family:var(--sans);font-weight:500;font-size:.74rem;color:var(--muted)}
+.scencard .srow{display:grid;grid-template-columns:4.6em 1fr;gap:10px;font-size:.8rem}.scencard .srow .k{color:var(--muted);font-weight:600}
+.spath{list-style:none;margin:0;padding:0;display:grid;gap:6px}.spath li{display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:baseline;border-top:1px solid var(--line);padding-top:6px}
+.spath .k{font-size:.8rem;font-weight:700}.spath .v{font-family:var(--mono);font-weight:700}.spath .n{grid-column:1/-1;font-size:.74rem;color:var(--muted)}
+.scencard .ds{font-size:.72rem;color:var(--muted)}
+#tfSeg button{padding:7px 10px}
+.scenh{display:flex;align-items:center;justify-content:space-between;gap:10px}.scenh>span{font-size:.78rem;font-weight:600;color:var(--muted)}
+
+.odds{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:grid;gap:10px;box-shadow:var(--shadow)}
+.odds .oh{display:flex;flex-direction:column;gap:3px}.odds .oh>b{font-size:.9rem}.odds .oh span{font-size:.8rem;color:var(--muted)}
+.obar{display:flex;height:26px;border-radius:9px;overflow:hidden;font:700 .74rem var(--mono)}
+.obar span{display:flex;align-items:center;white-space:nowrap;overflow:hidden;min-width:0}
+.obar .ou{background:color-mix(in srgb,var(--up) 22%,var(--surface));color:var(--up);padding-left:9px;border-right:2px solid var(--surface)}
+.obar .od{background:color-mix(in srgb,var(--down) 22%,var(--surface));color:var(--down);justify-content:flex-end;padding-right:9px}
+.ofs{display:flex;flex-wrap:wrap;gap:6px}.ofs span{display:flex;flex-direction:column;gap:1px;font-size:.72rem;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:5px 8px;color:var(--ink)}
+.ofs span b{font-family:var(--mono)}.ofs span.up b{color:var(--up)}.ofs span.down b{color:var(--down)}.ofs span i{font-style:normal;color:var(--muted);font-size:.68rem}
+.odds .ds{font-size:.72rem;color:var(--muted)}
+.ofs{display:grid;grid-template-columns:1fr 1fr;gap:6px}.ofs span{flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:6px}.ofs span i{flex-basis:100%}
 </style>
 </head>
 <body>
@@ -431,6 +456,7 @@ header{gap:4px}
       <button id="tf-15m" data-tf="15m" aria-pressed="false">단타 <small>15분</small></button>
       <button id="tf-4h" data-tf="4h" aria-pressed="true">스윙 <small>4시간</small></button>
       <button id="tf-1D" data-tf="1D" aria-pressed="false">중장기 <small>일봉</small></button>
+      <button id="tf-1W" data-tf="1W" aria-pressed="false">장기 <small>1주</small></button>
     </div>
     <div class="btns"><button class="btn" id="journalBtn" aria-expanded="false">매매 일지</button><button class="btn" id="refresh">새로고침</button></div>
   </div>
@@ -483,7 +509,7 @@ header{gap:4px}
 const DEFAULT_COINS=["BTC","ZEC","CFX","OP","AERO","MAVIA","AIO","DYM","GAS","ASTER","DOT","FARTCOIN","ENA","QNT","WLD","SUI","NEAR","CAKE","TAO","FET","ETH","SOL","XRP","DOGE","ONDO","JASMY"];
 const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 let coins=store.get("bb.coins",DEFAULT_COINS);
-let tf=store.get("bb.tf","4h");if(!["15m","4h","1D"].includes(tf))tf="4h";
+let tf=store.get("bb.tf","4h");if(!["15m","4h","1D","1W"].includes(tf))tf="4h";
 let open=null;
 const state={}; // sym -> {main:{c,at,err}, day:{c,at,err}}
 let tickers={}, timer=null, busy=false, pendingRender=false;
@@ -495,7 +521,7 @@ let cat=store.get("bb.cat","chart"),wTab=store.get("bb.wtab","pump"),wScope=stor
 const whale={};let mobKey=store.get("bb.mobula",""),mobState={ok:null,msg:""},showMob=false;let wScan={busy:false,done:0,total:0,at:0,scope:null,err:null};
 /* Stop = beyond the recent 10-candle swing, clamped to sl[0]–sl[1] × ATR. Half off at r1 × stop distance;
    the rest at r2 × stop distance, or trailed trail × ATR behind the best price when trail > 0. */
-const DEF_P={"15m":{sl:[1,2],r1:1.5,r2:2.5,trail:0},"4h":{sl:[1,3],r1:1.5,r2:3,trail:0},"1D":{sl:[1.5,3],r1:2,r2:4,trail:0}};
+const DEF_P={"15m":{sl:[1,2],r1:1.5,r2:2.5,trail:0},"4h":{sl:[1,3],r1:1.5,r2:3,trail:0},"1D":{sl:[1.5,3],r1:2,r2:4,trail:0},"1W":{sl:[1.5,3],r1:2,r2:4,trail:0}};
 let optStore=store.get("bb.opt",{}),patStore=store.get("bb.pat",{});
 function params(sym){const o=optStore[sym+"|"+tf];return cfg.slMode!=="margin"&&o&&o.adopted?o.p:DEF_P[tf]}
 function pDesc(p){return `손절 ATR ${p.sl[0]}~${p.sl[1]}배 · 목표1 ${p.r1}R(절반) · 나머지 ${p.trail?`트레일링 ATR ${p.trail}배`:p.r2+"R"}`}let showJournal=false;const bt={},fut={};let delArm=null;
@@ -528,7 +554,7 @@ function pctTxt(v){return (v>=0?"+":"−")+Math.abs(v).toFixed(2)+"%"}
 function qtyTxt(q){return q>=100?Math.round(q).toLocaleString("en-US"):q>=1?q.toFixed(2):q.toPrecision(3)}
 function wyHTML(a){
   const items=[[a.wyM,tfShort(tf)],[a.wyD,"일봉"]].filter(x=>x[0]);
-  if(!items.length)return `<h3 class="h3">와이코프 축적</h3><div class="nopat">지금 ${tfShort(tf)}${tf!=="1D"?"·일봉":""}에서는 축적 구조가 보이지 않아요.</div>`;
+  if(!items.length)return `<h3 class="h3">와이코프 축적</h3><div class="nopat">지금 ${tfShort(tf)}${!NODAY()?"·일봉":""}에서는 축적 구조가 보이지 않아요.</div>`;
   return `<h3 class="h3">와이코프 축적</h3>`+items.map(([w,lab])=>{
     const order=["A","B","C","D","E"],cur=w.phase==="fail"?-1:order.indexOf(w.phase);
     return `<div class="wy"><div class="wyhead"><span class="tf">${lab}</span><span class="nm ${cls(w.sc)}">${w.nm}</span><span class="s ${cls(w.sc)}">${scText(w.sc)}</span></div>
@@ -1001,8 +1027,10 @@ function regimeSeries(c){
   return {adx,ci};
 }
 function isChop(S,i){const a=S.adx[i],c=S.ci[i];if(a==null||c==null)return false;return a<18||c>61.8}
-const MAXSL={"15m":2.5,"4h":6,"1D":15};
-const CONFIRM={"15m":2,"4h":1,"1D":1};
+const MAXSL={"15m":2.5,"4h":6,"1D":15,"1W":35};
+const CONFIRM={"15m":2,"4h":1,"1D":1,"1W":1};
+/* weekly is spot reference only and, like daily, has no separate daily-candle context */
+const NODAY=()=>tf==="1D"||tf==="1W";
 function dayPatsFor(pats){pats=pats.filter(p=>p.grp!=="캔들");return tf==="15m"?pats.filter(p=>Math.abs(p.sc)>=2):pats}
 function indicatorsAt(S,i){
   const ind=[],last=S.close[i];
@@ -1042,7 +1070,7 @@ function indicatorsAt(S,i){
 const sum=a=>a.reduce((s,x)=>s+x.sc,0);
 /* Per-candle B/S: score each candle using only data up to that candle; mark the candle where the score
    first enters the buy zone (≥ +2) or sell zone (≤ −2), alternating B and S like a trade log. */
-const TF_MS={"15m":9e5,"4h":144e5,"1D":864e5,"1W":6048e5};
+const TF_MS={"15m":9e5,"4h":144e5,"1D":864e5,"1W":6048e5,"1M":2592e6};
 /* Higher-timeframe bias: +1 when the last CLOSED higher candle is above MA28 with MA7 > MA28, −1 for the mirror, else 0. */
 function makeBias(c,h,tfK,htfK){
   if(!h||h.length<30)return null;
@@ -1064,7 +1092,7 @@ function strongest(list,sign){const f=list.filter(p=>Math.sign(p.sc)===sign).sor
    3) Every signal carries an invalidation price (chart structure). The signal ends when price touches it,
       reaches the target, gets replaced by an opposite signal, or runs out of time. After TP1 the stop moves to entry.
    4) Indicator/pattern/Wyckoff score only sets the strength (buy vs strong buy), never the direction. */
-const EXPIRE={"15m":16,"4h":18,"1D":20};
+const EXPIRE={"15m":16,"4h":18,"1D":20,"1W":12};
 const SETUP_NM={brk:"돌파",trd:"추세 전환",pb:"눌림목",rng:"박스 반전",pat:"차트 패턴",harm:"하모닉",ew:"엘리엇",wyp:"와이코프",wy:"와이코프"};
 const END_NM={inv:"무효 · 손절선(무효 가격) 도달",be:"본전 종료 · 목표1 이후 되돌림",tgt:"목표 도달로 종료",exp:"유효기간 종료",opp:"반대 신호로 교체"};
 const END_SHORT={inv:"무효(손절선 도달)",be:"본전 종료",tgt:"목표 도달",exp:"유효기간 만료",opp:"반대 신호"};
@@ -1218,7 +1246,7 @@ function sigResult(s,c,last){const d=s.type==="B"?1:-1;let px=last;
 function defDir(a){const s=a.sigs;if(s.active)return s.active.type==="B"?"long":"short";if(s.armed)return s.armed.type==="B"?"long":"short";if(s.pending&&!s.pending.against)return s.pending.type==="B"?"long":"short";return a.closedTotal<0?"short":"long"}
 function analyze(candles,dayCandles,htfCandles,cache,dayMemo,sym){
   const S=series(candles),L=candles.length,last=S.close[L-1],now=Date.now();
-  const day=tf!=="1D"?dayCandles:null,dc=day?dayCtx(day,dayIdx(day,Math.min(candles[L-1].t+TF_MS[tf],now)),dayMemo):null;
+  const day=!NODAY()?dayCandles:null,dc=day?dayCtx(day,dayIdx(day,Math.min(candles[L-1].t+TF_MS[tf],now)),dayMemo):null;
   const ind=indicatorsAt(S,L-1);
   const pats=detectPatterns(candles.slice(-120)).map(p=>({...p,tf:tfShort(tf)}));
   if(dc)dayPatsFor(dc.pats).forEach(p=>pats.push({...p,tf:"일봉"}));
@@ -1241,11 +1269,99 @@ function fmtSigned(v){const a=Math.abs(v);const d=a>=100?1:a>=1?3:6;return (v>=0
 function scText(s){return s>0?"+"+s:s<0?"−"+(-s):"0"}
 function cls(s){return s>0?"up":s<0?"down":"flat"}
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
-function tfShort(t){return {"15m":"15분봉","4h":"4시간봉","1D":"일봉"}[t]}
+function tfShort(t){return {"15m":"15분봉","4h":"4시간봉","1D":"일봉","1W":"주봉"}[t]}
 function fmtTime(t){const d=new Date(t),p=n=>String(n).padStart(2,"0");
+  if(tf==="1W")return `${String(d.getFullYear()).slice(2)}.${d.getMonth()+1}.${d.getDate()}`;
   if(tf==="1D")return `${d.getMonth()+1}/${d.getDate()}`;
   if(tf==="4h")return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}시`;
   return `${p(d.getHours())}:${p(d.getMinutes())}`}
+
+/* ---------- weekly scenarios (spot reference) ----------
+   Builds a bullish or bearish path from what the analysis already knows: the nearest swing supports/resistances
+   (zigzag), Fibonacci levels of the last 120 candles, the Wyckoff range, and the target of the strongest pattern in
+   that direction. The path is turned into virtual candles whose size follows this coin's own weekly ATR. */
+const scenPick={};
+function scenRng(seed){let s=0;for(const ch of seed)s=(s*31+ch.charCodeAt(0))%2147483647;s=s||7;return ()=>{s=(s*16807)%2147483647;return s/2147483647}}
+function scenario(a,dir,sym){
+  const c=a.candles,L=c.length,last=a.last,A=atrAt(c,L-1),up=dir==="up",w=c.slice(-120);
+  const piv=zigzag(w,1.5*A).filter(p=>!p.tent),hiW=Math.max(...w.map(x=>x.high)),loW=Math.min(...w.map(x=>x.low));
+  const lv=[];
+  piv.forEach(p=>lv.push({p:p.p,why:p.t==="H"?(p.p<last?"직전 고점 (저항→지지 전환)":"직전 고점"):(p.p>last?"직전 저점 (지지→저항 전환)":"직전 저점")}));
+  [0.236,0.382,0.5,0.618,0.786].forEach(r=>lv.push({p:loW+r*(hiW-loW),why:`피보나치 ${r}`}));
+  lv.push({p:hiW,why:"구간 최고점"},{p:loW,why:"구간 최저점"});
+  const wy=a.wyM&&a.wyM.w;if(wy){lv.push({p:wy.top,why:"와이코프 범위 상단"},{p:wy.bottom,why:"와이코프 범위 하단"})}
+  const res=lv.filter(l=>l.p>last+0.6*A).sort((x,y)=>x.p-y.p),sup=lv.filter(l=>l.p<last-0.6*A).sort((x,y)=>y.p-x.p);
+  const pats=(a.pats||[]).filter(p=>p.grp!=="캔들"&&p.tgt!=null&&(up?p.sc>0&&p.tgt>last:p.sc<0&&p.tgt<last)).sort((x,y)=>Math.abs(y.sc)-Math.abs(x.sc));
+  const basis=[];let pts=[],inv,trig;
+  if(up){
+    const S1=sup.find(l=>last-l.p<=3*A)||{p:last-1.2*A,why:"가까운 지지 없음 (흔들림 1.2배 아래)"},R1=res[0]||{p:last+2*A,why:"가까운 저항 없음 (흔들림 2배 위)"};
+    let T=pats[0]?{p:pats[0].tgt,why:`${pats[0].nm} 목표`}:res.find(l=>l.p>R1.p+1*A)||{p:R1.p+0.618*(R1.p-Math.min(S1.p,loW)),why:"피보나치 확장 1.618"};
+    if(T.p<=R1.p+0.5*A)T={p:R1.p+1.5*A,why:"저항 돌파 후 평소 흔들림 1.5배"};
+    if(last-S1.p<=1.5*A)pts.push({p:S1.p,label:"지지 확인",why:S1.why});
+    pts.push({p:R1.p,label:"저항 돌파",why:R1.why},{p:R1.p-0.382*(R1.p-Math.min(S1.p,last)),label:"되돌림",why:"돌파 후 38.2% 되돌림 (리테스트)"},{p:T.p,label:"목표",why:T.why});
+    inv={p:S1.p-0.5*A,why:`${S1.why} ${fmt(S1.p)} 아래로 주봉 마감`};trig={p:R1.p,why:`주봉 종가가 ${R1.why} ${fmt(R1.p)} 위로 마감`};
+  }else{
+    const R1=res.find(l=>l.p-last<=3*A)||{p:last+1.2*A,why:"가까운 저항 없음 (흔들림 1.2배 위)"},S1=sup[0]||{p:last-2*A,why:"가까운 지지 없음 (흔들림 2배 아래)"};
+    let T=pats[0]?{p:pats[0].tgt,why:`${pats[0].nm} 목표`}:sup.find(l=>l.p<S1.p-1*A)||{p:S1.p-0.618*(Math.max(R1.p,hiW)-S1.p),why:"피보나치 확장 1.618"};
+    if(T.p>=S1.p-0.5*A)T={p:S1.p-1.5*A,why:"지지 이탈 후 평소 흔들림 1.5배"};
+    if(T.p<=0)T={p:S1.p*0.6,why:"지지 이탈 후 추가 하락"};
+    if(R1.p-last<=1.5*A)pts.push({p:R1.p,label:"저항 확인",why:R1.why});
+    pts.push({p:S1.p,label:"지지 이탈",why:S1.why},{p:S1.p+0.382*(Math.max(R1.p,last)-S1.p),label:"되돌림",why:"이탈 후 38.2% 반등 (리테스트)"},{p:T.p,label:"목표",why:T.why});
+    inv={p:R1.p+0.5*A,why:`${R1.why} ${fmt(R1.p)} 위로 주봉 마감`};trig={p:S1.p,why:`주봉 종가가 ${S1.why} ${fmt(S1.p)} 아래로 마감`};
+  }
+  if(pats[0])basis.push(`${pats[0].nm} (${pats[0].tf||tfShort(tf)})`);
+  if(a.wyM)basis.push(`와이코프 ${a.wyM.nm}`);
+  basis.push(`시장 상태: ${a.sigs.regime>0?"상승 추세":a.sigs.regime<0?"하락 추세":"박스권"}`);
+  /* virtual candles: ~0.7 ATR of travel per candle, wicks and noise sized from the same ATR */
+  /* horizon = the 8 / 12 / 26-week choice: a path longer than that is compressed into it, a shorter one is followed by sideways candles */
+  const NH=[8,12,26].includes(cfg.scenN)?cfg.scenN:12,rnd=scenRng((sym||"")+dir+NH+Math.round(last*1e6)),candles=[];
+  let prev=last,cnt=[],from0=last;pts.forEach(pt=>{cnt.push(Math.max(2,Math.round(Math.abs(pt.p-from0)/(0.7*A))));from0=pt.p});
+  const natural=cnt.reduce((t,v)=>t+v,0),compressed=natural>NH;
+  if(compressed){let sc=cnt.map(v=>Math.max(1,Math.floor(v*NH/natural)));while(sc.reduce((t,v)=>t+v,0)<NH){const k=sc.indexOf(Math.min(...sc));sc[k]++}while(sc.reduce((t,v)=>t+v,0)>NH){const k=sc.indexOf(Math.max(...sc));sc[k]--}cnt=sc}
+  const mk=(o,cl,wk)=>({open:o,close:cl,high:Math.max(o,cl)+rnd()*wk*A,low:Math.max(1e-12,Math.min(o,cl)-rnd()*wk*A)});
+  pts.forEach((pt,k)=>{const n=cnt[k],from=prev;
+    for(let j=1;j<=n;j++){const base=from+(pt.p-from)*j/n,cl=j===n?pt.p:base+(rnd()-.5)*0.5*A;candles.push(mk(prev,cl,0.45));prev=cl}
+    pt.i=candles.length-1});
+  while(candles.length<NH){const cl=prev+(rnd()-.5)*0.6*A;candles.push(mk(prev,cl,0.35));prev=cl}
+  const fin=pts[pts.length-1].p,chg=(fin-last)/last*100,score=a.closedTotal,lean=a.sigs.regime>0||score>=2?"up":a.sigs.regime<0||score<=-2?"down":null;
+  return {dir,pts,candles,inv,trig,basis,chg,lean,A,NH,natural,compressed};
+}
+/* Which scenario is more realistic right now: weighted evidence for up vs down, turned into a share (not a probability).
+   Re-evaluated on every refresh, including the week still in progress. */
+function scenOdds(a,sym){
+  const c=a.candles,L=c.length,last=a.last,A=atrAt(c,L-1),S=series(c),E=engSeries(S),it=[],add=(nm,v,txt)=>{if(v)it.push({nm,v,txt})};
+  const rg=a.sigs.regime;add("주봉 추세",rg*2,rg>0?"상승 추세":rg<0?"하락 추세":"");
+  const b=a.sigs.bias;add("월봉 추세",(b||0)*1.5,b>0?"상승":b<0?"하락":"");
+  const act=a.sigs.active;if(act)add("살아있는 신호",(act.type==="B"?1:-1)*(act.str>=3?2.5:2),`${act.type==="B"?"매수":"매도"} 신호 (${SETUP_NM[act.setup]})`);
+  const ctx=Math.max(-2,Math.min(2,(a.closedTotal||0)/2));add("패턴·와이코프·지표 점수",+ctx.toFixed(2),`참고 점수 ${scText(a.closedTotal||0)}`);
+  const e20=E.e20[L-1],e20p=E.e20[L-4];if(e20!=null&&e20p!=null){const v=last>e20&&e20>e20p?1:last<e20&&e20<e20p?-1:0;add("20주 이동평균",v,v>0?"위에서 상승 중":"아래에서 하락 중")}
+  const r=S.r[L-1];if(r!=null)add("RSI",r>=75?-0.5:r>55?0.5:r<=25?0.5:r<45?-0.5:0,`RSI ${r.toFixed(0)}${r>=75?" 과열 (조정 여지)":r<=25?" 과매도 (반등 여지)":""}`);
+  const su=scenario(a,"up",sym),sd=scenario(a,"down",sym),dU=(su.trig.p-last)/A,dD=(last-sd.trig.p)/A,dv=Math.max(-1.5,Math.min(1.5,(dD-dU)*0.5));
+  add("시작 조건까지 거리",+dv.toFixed(2),`상승 시작까지 ${pctTxt((su.trig.p-last)/last*100)} · 하락 시작까지 ${pctTxt((sd.trig.p-last)/last*100)}`);
+  const k=c[L-1],body=(k.close-k.open)/A;add("이번 주 캔들",body>0.5?0.5:body<-0.5?-0.5:0,`${a.sigs.liveLast?"진행 중 ":""}${k.close>=k.open?"양봉":"음봉"} ${pctTxt((k.close-k.open)/k.open*100)}`);
+  const tot=it.reduce((t,x)=>t+x.v,0),up=Math.round(100/(1+Math.exp(-tot/2.5)));
+  return {up,down:100-up,tot,items:it.sort((x,y)=>Math.abs(y.v)-Math.abs(x.v))};
+}
+function oddsHTML(a,sym){const o=scenOdds(a,sym),lead=o.up>=55?"up":o.up<=45?"down":null;
+  return `<div class="odds"><div class="oh"><b>시나리오 우세도</b><span>${lead?`지금은 <b class="${lead==="up"?"up":"down"}">${lead==="up"?"상승":"하락"} 시나리오</b>가 더 실현 가능해 보여요`:"두 시나리오가 비슷해요 (방향 확인 대기)"}</span></div>
+    <div class="obar"><span class="ou" style="width:${o.up}%">상승 ${o.up}</span><span class="od" style="width:${o.down}%">${o.down} 하락</span></div>
+    <div class="ofs">${o.items.map(x=>`<span class="${x.v>0?"up":"down"}">${x.nm} <b>${x.v>0?"+":"−"}${Math.abs(x.v)}</b><i>${esc(x.txt)}</i></span>`).join("")}</div>
+    <div class="ds">근거 점수를 합쳐서 나눈 비율이에요 (확률이 아니에요). 1분마다 진행 중인 주봉 캔들까지 반영해서 다시 계산해요.</div></div>`}
+function scenHTML(a,sym){
+  const d=scenPick[sym];
+  const nh=[8,12,26].includes(cfg.scenN)?cfg.scenN:12;
+  const btns=oddsHTML(a,sym)+`<div class="scenh"><span>가상 캔들</span><div class="seg sm" role="group" aria-label="가상 캔들 개수">${[8,12,26].map(v=>`<button data-scenn="${v}" aria-pressed="${nh===v}">${v}주</button>`).join("")}</div></div><div class="scenbtns" role="group" aria-label="시나리오"><button class="scb up ${d==="up"?"on":""}" data-scen="up" data-sym="${sym}" aria-pressed="${d==="up"}">상승 시나리오</button><button class="scb down ${d==="down"?"on":""}" data-scen="down" data-sym="${sym}" aria-pressed="${d==="down"}">하락 시나리오</button></div>`;
+  if(!d)return btns+`<div class="nopat">버튼을 누르면 지금까지의 분석(패턴 · 지지/저항 · 피보나치 · 와이코프)으로 앞으로 나올 수 있는 가상 캔들 경로를 차트 오른쪽에 그려요. 한 번 더 누르면 꺼져요.</div>`;
+  const S=scenario(a,d,sym),U=d==="up";
+  return btns+`<div class="scencard ${U?"sc-up":"sc-down"}">
+    <div class="sh"><b>${U?"상승":"하락"} 시나리오</b><span class="${U?"up":"down"}">${pctTxt(S.chg)}</span>${(()=>{const o=scenOdds(a,sym),mine=U?o.up:o.down;return `<span class="lean">우세도 ${mine} · ${mine>=55?"더 실현 가능한 쪽":mine<=45?"덜 실현 가능한 쪽":"비슷한 수준"}</span>`})()}</div>
+    <div class="srow"><span class="k">시작 조건</span><span>${esc(S.trig.why)}</span></div>
+    <ol class="spath">${S.pts.map((p,k)=>`<li><span class="k">${k+1}. ${p.label}</span><span class="v">${fmt(p.p)}</span><span class="n">${pctTxt((p.p-a.last)/a.last*100)} · ${esc(p.why)} · 약 ${p.i+1}주 뒤</span></li>`).join("")}</ol>
+    ${S.compressed?`<div class="ds">보통 속도(주봉 흔들림 기준)면 목표까지 약 ${S.natural}주 걸릴 거리라, ${S.NH}주 안에 보이도록 압축해서 그렸어요. 실제로는 더 오래 걸릴 수 있어요.</div>`:S.candles.length>S.pts[S.pts.length-1].i+1?`<div class="ds">목표 뒤 ${S.candles.length-S.pts[S.pts.length-1].i-1}주는 목표 근처에서 쉬어가는 흐름으로 채웠어요.</div>`:""}
+    <div class="srow"><span class="k">무효 조건</span><span>${esc(S.inv.why)} (${fmt(S.inv.p)})</span></div>
+    <div class="srow"><span class="k">근거</span><span>${S.basis.map(esc).join(" · ")}</span></div>
+    <div class="ds">가상 캔들은 실제 예측이 아니라, 지금 차트 구조에서 이 방향으로 간다면 거칠 만한 자리를 이 코인의 평소 주봉 흔들림 크기로 그려본 그림이에요. 시작 조건이 나오기 전까지는 확정이 아니에요.</div></div>`;
+}
 
 /* ---------- chart ---------- */
 function linePath(arr,x,y){let d="",on=false;arr.forEach((v,i)=>{if(v==null){on=false;return}d+=(on?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1);on=true});return d}
@@ -1255,11 +1371,12 @@ function chartSVG(a,P,sym){
   const zoom=cfg.zoom||50,N=zoom==="all"?a.candles.length:Math.min(a.candles.length,zoom);
   const off=Math.max(0,a.candles.length-N),c=a.candles.slice(off),n=c.length;
   const win=arr=>arr.slice(off),sg0=a.sigs,wyw=a.wyM&&a.wyM.w;
+  const SC=tf==="1W"&&scenPick[sym]?scenario(a,scenPick[sym],sym):null,K=SC?SC.candles.length:0;
   const sigs=sg0.filter(s=>s.i>=off).map(s=>({...s,i:s.i-off})),skp=(sg0.skipped||[]).filter(s=>s.i>=off).map(s=>({...s,i:s.i-off}));
   const up=win(a.upper),lo=win(a.lower),m7=win(a.ma7),m14=win(a.ma14),m28=win(a.ma28);
-  const vals=[...c.map(x=>x.high),...c.map(x=>x.low),...up,...lo,...(P?[P.entry,P.sl,P.tp1]:[]),...(a.sigs.active?[a.sigs.active.inv]:[]),...(a.sigs.armed?[a.sigs.armed.limit]:[])].filter(v=>v!=null);
+  const vals=[...c.map(x=>x.high),...c.map(x=>x.low),...up,...lo,...(P?[P.entry,P.sl,P.tp1]:[]),...(a.sigs.active?[a.sigs.active.inv]:[]),...(a.sigs.armed?[a.sigs.armed.limit]:[]),...(SC?[...SC.candles.map(k=>k.high),...SC.candles.map(k=>k.low),SC.inv.p]:[])].filter(v=>v!=null);
   let mn=Math.min(...vals),mx=Math.max(...vals);const pad=(mx-mn)*.05||1;mn-=pad;mx+=pad;
-  const step=(W-PL-PR)/n,x=i=>PL+step*(i+.5),y=v=>PT+(H-PT-PB)*(1-(v-mn)/(mx-mn)),cw=Math.max(1.6,step*.66);
+  const step=(W-PL-PR)/(n+K),x=i=>PL+step*(i+.5),y=v=>PT+(H-PT-PB)*(1-(v-mn)/(mx-mn)),cw=Math.max(1.6,step*.66);
   let band="";const idx=up.map((v,i)=>v==null?-1:i).filter(i=>i>=0);
   if(idx.length){band="M"+idx.map(i=>x(i).toFixed(1)+" "+y(up[i]).toFixed(1)).join("L")+"L"+idx.slice().reverse().map(i=>x(i).toFixed(1)+" "+y(lo[i]).toFixed(1)).join("L")+"Z"}
   const ticks=Array.from({length:5},(_,k)=>mn+pad+(mx-mn-2*pad)*k/4);
@@ -1282,6 +1399,15 @@ function chartSVG(a,P,sym){
   const sel=selCandle[sym]!=null&&selCandle[sym]>=off&&selCandle[sym]<a.candles.length?selCandle[sym]-off:null;
   const selLine=sel!=null?`<rect x="${(x(sel)-step/2).toFixed(1)}" y="${PT}" width="${step.toFixed(1)}" height="${H-PT-PB}" fill="var(--ink)" opacity=".08"/><line x1="${x(sel).toFixed(1)}" x2="${x(sel).toFixed(1)}" y1="${PT}" y2="${H-PB}" stroke="var(--ink)" stroke-width=".8" stroke-dasharray="3 3"/>`:"";
   const hits=c.map((k,i)=>`<rect data-ci="${off+i}" data-sym="${sym}" x="${(x(i)-step/2).toFixed(1)}" y="0" width="${step.toFixed(1)}" height="${H}" fill="#000" fill-opacity="0" style="cursor:pointer"/>`).join("");
+  /* virtual scenario candles to the right of the last real candle */
+  const projG=()=>{if(!SC)return"";const col=SC.dir==="up"?"var(--up)":"var(--down)",xd=x(n-0.5),cw2=Math.max(1.6,step*.62);
+    const line=`M${x(n-1).toFixed(1)} ${y(c[n-1].close).toFixed(1)}`+SC.candles.map((k,j)=>`L${x(n+j).toFixed(1)} ${y(k.close).toFixed(1)}`).join("");
+    const hl=(v,stroke,lab,dash)=>`<line x1="${xd.toFixed(1)}" x2="${W-PR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${stroke}" stroke-width="1" stroke-dasharray="${dash}"/><text x="${(xd+3).toFixed(1)}" y="${(y(v)-3).toFixed(1)}" fill="${stroke}" font-size="${FS-2}" font-family="IBM Plex Sans KR,sans-serif">${lab}</text>`;
+    return `<rect x="${xd.toFixed(1)}" y="${PT}" width="${(W-PR-xd).toFixed(1)}" height="${H-PT-PB}" fill="${col}" opacity=".05"/><line x1="${xd.toFixed(1)}" x2="${xd.toFixed(1)}" y1="${PT}" y2="${H-PB}" stroke="var(--muted)" stroke-width=".8" stroke-dasharray="3 3"/><text x="${(xd+3).toFixed(1)}" y="${PT+10}" fill="var(--muted)" font-size="${FS-1}" font-weight="700" font-family="IBM Plex Sans KR,sans-serif">가상</text>`+
+      hl(SC.trig.p,"var(--accent)","시작","4 3")+hl(SC.inv.p,"var(--muted)","무효","2 3")+
+      `<path d="${line}" fill="none" stroke="${col}" stroke-width="1" opacity=".55" stroke-dasharray="3 2"/>`+
+      SC.candles.map((k,j)=>{const cu=k.close>=k.open?"var(--up)":"var(--down)",t=y(Math.max(k.open,k.close)),b=y(Math.min(k.open,k.close));return `<g opacity=".6"><line x1="${x(n+j).toFixed(1)}" x2="${x(n+j).toFixed(1)}" y1="${y(k.high).toFixed(1)}" y2="${y(k.low).toFixed(1)}" stroke="${cu}" stroke-width="1"/><rect x="${(x(n+j)-cw2/2).toFixed(1)}" y="${t.toFixed(1)}" width="${cw2.toFixed(1)}" height="${Math.max(1,b-t).toFixed(1)}" fill="${cu}" fill-opacity=".35" stroke="${cu}" stroke-width=".8"/></g>`}).join("")+
+      SC.pts.map(pt=>{const xx=x(n+pt.i),yy=y(pt.p),above=SC.dir==="up"?pt.label!=="되돌림":pt.label==="되돌림";return `<circle cx="${xx.toFixed(1)}" cy="${yy.toFixed(1)}" r="2.6" fill="${col}"/><text x="${Math.min(W-PR-2,xx).toFixed(1)}" y="${(above?yy-6:yy+12).toFixed(1)}" fill="${col}" font-size="${FS-2}" font-weight="700" text-anchor="end" font-family="IBM Plex Sans KR,sans-serif">${pt.label} ${fmt(pt.p)}</text>`}).join("")};
   /* finger-sized tap targets on every B/S badge (drawn last so they win over the thin candle columns) */
   const bHit=(i,type)=>{const k=c[i],buy=type==="B";let cy=buy?y(k.low)+14:y(k.high)-14;cy=Math.max(PT,Math.min(H-PB-2,cy));return `<circle data-ci="${off+i}" data-sym="${sym}" cx="${x(i).toFixed(1)}" cy="${cy.toFixed(1)}" r="15" fill="#000" fill-opacity="0" style="cursor:pointer"/>`};
   const bHits=[...skp.map(s=>bHit(s.i,s.type)),...sigs.map(s=>bHit(s.i,s.type)),...(pd?[bHit(pd.i,pd.type)]:[]),...(amS&&amS.i0>=off?[bHit(amS.i0-off,amS.type)]:[])].join("");
@@ -1291,7 +1417,7 @@ function chartSVG(a,P,sym){
     fibG=`<path d="M${x0.toFixed(1)} ${y(upSw?hi-0.5*(hi-lo):lo+0.5*(hi-lo)).toFixed(1)}H${W-PR}V${y(upSw?hi-0.618*(hi-lo):lo+0.618*(hi-lo)).toFixed(1)}H${x0.toFixed(1)}Z" fill="var(--fib)" opacity=".10"/>`+
       FIB_LV.map(r=>{const v=upSw?hi-r*(hi-lo):lo+r*(hi-lo),yy=y(v).toFixed(1),gold=r===0.5||r===0.618;return `<line x1="${x0.toFixed(1)}" x2="${W-PR}" y1="${yy}" y2="${yy}" stroke="var(--fib)" stroke-width="${gold?1.2:.8}" stroke-dasharray="${r===0||r===1?"":"2 3"}" opacity="${gold?.95:.7}"/><text x="${(W-PR-3).toFixed(1)}" y="${(+yy-3).toFixed(1)}" fill="var(--fib)" font-size="${FS-1.5}" font-weight="700" text-anchor="end" font-family="IBM Plex Mono,monospace">${r} · ${fmt(v)}</text>`}).join("")+
       `<circle cx="${x(ih).toFixed(1)}" cy="${y(hi).toFixed(1)}" r="3" fill="var(--fib)"/><circle cx="${x(il).toFixed(1)}" cy="${y(lo).toFixed(1)}" r="3" fill="var(--fib)"/>`}
-  return `<svg class="chart big" viewBox="0 0 ${W} ${H}" role="img" aria-label="캔들 차트, 캔들을 누르면 정보가 보여요">${g}<path d="${band}" fill="var(--band)" opacity=".7"/>${selLine}${bodies}<path d="${linePath(m28,x,y)}" fill="none" stroke="var(--ma28)" stroke-width="1.3"/><path d="${linePath(m14,x,y)}" fill="none" stroke="var(--ma14)" stroke-width="1.3"/><path d="${linePath(m7,x,y)}" fill="none" stroke="var(--ma7)" stroke-width="1.3"/>${fibG}${wyw?wyLines(wyw,off,x,y,PL,W,PR,mn,mx,FS):""}${P?planLines(P,x,y,n,mn,mx,PL,W,PR,FS):""}${marks}${xt}${hits}${bHits}</svg>`;
+  return `<svg class="chart big" viewBox="0 0 ${W} ${H}" role="img" aria-label="캔들 차트, 캔들을 누르면 정보가 보여요">${g}<path d="${band}" fill="var(--band)" opacity=".7"/>${selLine}${bodies}<path d="${linePath(m28,x,y)}" fill="none" stroke="var(--ma28)" stroke-width="1.3"/><path d="${linePath(m14,x,y)}" fill="none" stroke="var(--ma14)" stroke-width="1.3"/><path d="${linePath(m7,x,y)}" fill="none" stroke="var(--ma7)" stroke-width="1.3"/>${projG()}${fibG}${wyw?wyLines(wyw,off,x,y,PL,W,PR,mn,mx,FS):""}${P?planLines(P,x,y,n,mn,mx,PL,W,PR,FS):""}${marks}${xt}${hits}${bHits}</svg>`;
 }
 const FIB_LV=[0,0.236,0.382,0.5,0.618,0.786,1];
 /* Same swing as the chart overlay, for the price list under the chart. */
@@ -1318,8 +1444,8 @@ function candleInfo(a,sym){
       <div class="ds"><b>${sg.end?END_NM[sg.end.reason]+` · ${fmtTime(sg.end.t)}`:sg.be!=null?"진행 중 · 목표1 도달, 본전 보호":"진행 중인 신호"}</b></div>
       <div class="cgrid"><span class="k">진입 확정가</span><span class="v">${fmt(sg.price)}</span><span class="n">신호 캔들 종가</span>
       <span class="k">무효 가격</span><span class="v">${fmt(sg.inv)}</span><span class="n">${pE(sg.inv)} · 차트 구조</span>
-      <span class="k dn">손절가</span><span class="v dn">${fmt(lv.sl)}</span><span class="n">${pE(lv.sl)} · 설정 기준</span>
-      ${(()=>{const rs=recStop(a.candles,si,long,sg.price,sg.inv);return `<span class="k dn">추천 손절가</span><span class="v dn">${fmt(rs.sl)}</span><span class="n">${pE(rs.sl)} · ${esc(rs.why)} · ${rs.levTxt}</span>`})()}
+      ${tf==="1W"?"":`<span class="k dn">손절가</span><span class="v dn">${fmt(lv.sl)}</span><span class="n">${pE(lv.sl)} · 설정 기준</span>`}
+      ${(()=>{const rs=recStop(a.candles,si,long,sg.price,sg.inv);return `<span class="k dn">추천 손절가</span><span class="v dn">${fmt(rs.sl)}</span><span class="n">${pE(rs.sl)} · ${esc(rs.why)}${tf==="1W"?"":" · "+rs.levTxt}</span>`})()}
       <span class="k upc">목표가 1</span><span class="v upc">${fmt(lv.tp1)}</span><span class="n">${pE(lv.tp1)} · 절반</span>
       ${lv.tp2!=null?`<span class="k upc">목표가 2</span><span class="v upc">${fmt(lv.tp2)}</span><span class="n">${pE(lv.tp2)}</span>`:`<span class="k upc">나머지</span><span class="v upc">트레일링</span><span class="n">ATR ${lv.trail}배</span>`}</div>
       <div class="ds">${sg.end?`결과 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`:`지금 가격 ${fmt(a.last)} · 신호 이후 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`} 실제 체결은 다음 캔들 시가 근처라 조금 다를 수 있어요.</div></div>`}
@@ -1349,7 +1475,7 @@ function macdSVG(a){
 function patOpts(sym){const ps=sym&&patStore[sym+"|"+tf];return ps&&ps.apply?{patOff:new Set(ps.off||[]),patGood:new Set(ps.good||[])}:{}}
 function getA(sym){
   const st=state[sym];if(!st||!st.main||!st.main.c)return null;
-  const day=tf==="1D"?null:(st.day&&st.day.c)||null;
+  const day=NODAY()?null:(st.day&&st.day.c)||null;
   const htf=HTF[tf]==="1D"?day:(st.htf&&st.htf.c)||null;
   const key=st.main.at+"|"+(st.day&&st.day.at)+"|"+(st.htf&&st.htf.at)+"|"+cfg.mtf+"|"+((patStore[sym+"|"+tf]||{}).at||0);
   if(st.cacheKey!==key){st.cacheKey=key;st.sc=st.sc||{};const ck=tf+"|"+src;st.sc[ck]=st.sc[ck]||new Map();st.dm=st.dm||{};st.dm[src]=st.dm[src]||new Map();st.a=analyze(st.main.c,day,htf,st.sc[ck],st.dm[src],sym)}
@@ -1372,26 +1498,27 @@ function render(){
         patLine=rg>0?`<div class="pat flat">관망 · 상승 추세, 눌림목 B 대기</div>`:rg<0?`<div class="pat flat">관망 · 하락 추세, 반등 후 S 대기</div>`:`<div class="pat flat">관망 · 박스권${bx?` ${fmt(bx.lo)}~${fmt(bx.hi)}`:""}, 끝단 반전·돌파 대기</div>`}
       if(pd){const left=Math.max(1,Math.round((pd.endsAt-Date.now())/60000)),lt=left>=120?Math.round(left/60)+"시간":left+"분";
         patLine=`<div class="pat pend ${pd.type==="B"?"up":"down"}">${pd.type==="B"?"롱":"숏"} 예비 신호 · ${SETUP_NM[pd.setup]}${pd.against?` (${pd.reason})`:""} · 마감까지 ${lt}</div>`}
+      if(tf==="1W")patLine=patLine.replace(/롱/g,"매수").replace(/숏/g,"매도");
       const wq=a.wyM||a.wyD;if(wq)patLine=patLine.replace("</div>",` · <b class="wyt">와이코프 ${wq.phase==="fail"?"실패":wq.phase}${a.wyM?"":"(일봉)"}</b></div>`);}
     else if(err) right=`<div class="px"><div class="c flat">—</div></div><span class="chip wait">불러오기 실패</span>`;
     else right=`<div class="px"><span class="skel"></span></div><span class="chip wait">계산 중</span>`;
     let det="";
     if(open===sym){
       if(a){const pos=((Math.max(-12,Math.min(12,a.closedTotal))+12)/24*100).toFixed(1);
-        const dayNote=tf!=="1D"&&!(st.day&&st.day.c)?`<div class="nopat">일봉 패턴은 아직 불러오는 중이에요.</div>`:"";
+        const dayNote=!NODAY()&&!(st.day&&st.day.c)?`<div class="nopat">일봉 패턴은 아직 불러오는 중이에요.</div>`:"";
         det=`<div class="detail">
           <div class="meter"><div class="lbl"><span>강력매도</span><span class="score">마감 기준 ${scText(a.closedTotal)}${a.sigs.liveLast?` · 진행 중 캔들 ${scText(a.total)}`:""}</span><span>강력매수</span></div><div class="track"><div class="pin" style="left:${pos}%"></div></div>
             <div class="ds">참고 점수(진행 중 캔들): 지표 ${scText(a.indTotal)} · 패턴 ${scText(a.patTotal)} · 와이코프 ${scText(a.wyScore)}. 이 점수는 신호의 세기만 정해요. 판정 칩은 지금 살아있는 B/S 신호 기준이고, B/S는 마감된 캔들로만 확정해요.</div></div>
           <div class="zoom" role="group" aria-label="차트 보기"><button class="mini fibbtn ${cfg.fib?"on":""}" data-fib="1" aria-pressed="${!!cfg.fib}">피보나치 ${cfg.fib?"ON":"OFF"}</button><span class="zsep"></span>${[30,50,80,150,"all"].map(z=>`<button class="mini ${ (cfg.zoom||50)===z?"on":""}" data-zoom="${z}" aria-label="캔들 ${z==="all"?"전체":z+"개"}">${z==="all"?"전체":z}</button>`).join("")}</div>
-          ${chartSVG(a,tradePlan(a,dirPick[sym]||defDir(a),sym),sym)}
+          ${tf==="1W"?scenHTML(a,sym).replace(/<div class="scencard[\s\S]*$/,""):""}
+          ${chartSVG(a,tf==="1W"?null:tradePlan(a,dirPick[sym]||defDir(a),sym),sym)}
+          ${tf==="1W"&&scenPick[sym]?(()=>{const h=scenHTML(a,sym),k=h.indexOf('<div class="scencard');return k>=0?h.slice(k):""})():""}
           ${cfg.fib?(()=>{const f=fibInfo(a);return `<div class="fibrow"><div class="fh"><b>피보나치 되돌림</b><span>보이는 구간의 ${f.upSw?`저점 ${fmt(f.lo)}(${fmtTime(f.tLo)}) → 고점 ${fmt(f.hi)}(${fmtTime(f.tHi)}) 상승 구간`:`고점 ${fmt(f.hi)}(${fmtTime(f.tHi)}) → 저점 ${fmt(f.lo)}(${fmtTime(f.tLo)}) 하락 구간`} · 캔들 개수 버튼으로 구간을 바꿀 수 있어요</span></div>
             <div class="fl">${f.lv.map(l=>`<span class="${l.r===0.5||l.r===0.618?"gold":""}"><i>${l.r}</i>${fmt(l.v)}</span>`).join("")}</div>
             <div class="ds">${f.upSw?"상승 뒤 되돌림이라 0.382~0.618이 눌림 지지 후보":"하락 뒤 반등이라 0.382~0.618이 반등 저항 후보"}예요. 0.5~0.618 (황금 구간)은 차트에 색으로 표시돼요.</div></div>`})():""}
           ${candleInfo(a,sym)}
-          <div class="legend"><span><i style="background:var(--ink)"></i>진입</span><span><i style="background:var(--down)"></i>손절</span><span><i style="background:var(--up)"></i>목표</span><span><i style="background:var(--liq)"></i>청산</span></div>
-          ${planHTML(a,sym)}
-          ${futHTML(sym)}
-          ${btHTML(sym)}
+          ${tf==="1W"?"":`<div class="legend"><span><i style="background:var(--ink)"></i>진입</span><span><i style="background:var(--down)"></i>손절</span><span><i style="background:var(--up)"></i>목표</span><span><i style="background:var(--liq)"></i>청산</span></div>`}
+          ${tf==="1W"?`<div class="nopat">주봉은 현물 참고용이라 선물 진입 계획 · 레버리지 · 수급 · 백테스트는 표시하지 않아요.</div>`:planHTML(a,sym)+futHTML(sym)+btHTML(sym)}
           <div class="legend"><span class="up">▮</span><span style="margin-left:-8px">상승</span><span class="down">▮</span><span style="margin-left:-8px">하락</span><span><i style="background:var(--ma7)"></i>MA7</span><span><i style="background:var(--ma14)"></i>MA14</span><span><i style="background:var(--ma28)"></i>MA28</span><span><i style="background:var(--band);height:8px"></i>볼린저</span><span><b class="up">B</b> 매수 <b class="down">S</b> 매도</span></div>
           <div class="nopat">선명한 B/S = 지금 살아있는 신호 · 흐린 B/S = 끝난 신호 · × = 신호가 끝난 캔들 · 점선 테두리 = 마감 전 예비 신호 또는 되돌림 대기 · 작은 회색 = 걸러진 신호 · "무효" 점선 = 살아있는 신호의 무효 가격</div>
           ${wyHTML(a)}
@@ -1402,7 +1529,7 @@ function render(){
           ${a.sigs.skipped&&a.sigs.skipped.length?`<div class="nopat">걸러낸 신호 ${a.sigs.skipped.length}개 (차트의 흐린 회색 표시): ${a.sigs.skipped.slice(-3).map(s=>`${s.type} ${fmtTime(s.t)} · ${s.reason}`).join(" / ")}</div>`:""}
           <div class="nopat">오른쪽 숫자는 신호 방향 기준 손익이에요 (숏은 내려가면 +). 끝난 신호는 끝난 가격 기준, 진행 중인 신호는 지금 가격 기준이에요. 신호는 무효 가격에 닿거나, 목표에 닿거나, 반대 신호가 뜨거나, ${tfShort(tf)} ${a.sigs.expN}캔들이 지나면 끝나요. B/S는 캔들이 마감된 뒤에만 확정되고, 확정된 신호는 바뀌지 않아요. 흐린 점선 표시는 진행 중 캔들의 예비 신호예요.</div>
           <div class="mtfrow"><span>시장 상태: <b class="${cls(a.sigs.regime)}">${a.sigs.regime>0?"상승 추세 (눌림목·돌파 B만)":a.sigs.regime<0?"하락 추세 (반등 매도·이탈 S만)":"박스권 (끝단 반전·돌파만)"}</b> · 추세 강도(ADX) ${a.sigs.adx!=null?a.sigs.adx.toFixed(0):"–"} · 횡보 지수 ${a.sigs.ci!=null?a.sigs.ci.toFixed(0):"–"}</span></div>
-          <div class="mtfrow"><span>상위 봉(${{"15m":"4시간봉","4h":"일봉","1D":"주봉"}[tf]}) 추세: <b class="${cls(a.sigs.bias||0)}">${a.sigs.bias==null?"불러오는 중":a.sigs.bias>0?"상승":a.sigs.bias<0?"하락":"중립"}</b></span><button class="mini ${cfg.mtf?"on":""}" data-mtf="1" aria-pressed="${cfg.mtf}">상위 봉 필터 ${cfg.mtf?"켜짐":"꺼짐"}</button></div></div>
+          <div class="mtfrow"><span>상위 봉(${{"15m":"4시간봉","4h":"일봉","1D":"주봉","1W":"월봉"}[tf]}) 추세: <b class="${cls(a.sigs.bias||0)}">${a.sigs.bias==null?"불러오는 중":a.sigs.bias>0?"상승":a.sigs.bias<0?"하락":"중립"}</b></span><button class="mini ${cfg.mtf?"on":""}" data-mtf="1" aria-pressed="${cfg.mtf}">상위 봉 필터 ${cfg.mtf?"켜짐":"꺼짐"}</button></div></div>
           <h3 class="h3">패턴 (차트 · 하모닉 · 엘리엇 · 와이코프 · 캔들)</h3>
           <div class="pats">${a.pats.length?(()=>{const ps=patStore[sym+"|"+tf],off=new Set(ps&&ps.apply?ps.off:[]);return a.pats.map(p=>`<div class="pt"><span class="tf">${p.tf}<br>${p.grp||"차트"}</span><div><div class="nm ${cls(p.sc)}">${p.nm}${p.stage==="done"?` <span class="tag">확정</span>`:""}${p.id&&off.has(p.id)?` <span class="tag off">이 코인 꺼짐</span>`:""}</div><div class="ds">${p.ds}${p.inv!=null&&p.stage==="done"?` · 무효 ${fmt(p.inv)}`:""}${p.tgt!=null?` · 목표 ${fmt(p.tgt)}`:""}</div></div><span class="s ${cls(p.sc)}">${scText(p.sc)}</span></div>`).join("")})():`<div class="nopat">지금은 눈에 띄는 패턴이 없어요.</div>`}${dayNote}</div>
           ${rsiSVG(a)}${macdSVG(a)}
@@ -1426,7 +1553,7 @@ function showNotice(title,body){noticeEl.innerHTML=`<strong>${title}</strong>${b
 /* ---------- data: Bybit first, Binance futures as fallback when Bybit can't be reached ---------- */
 const BYBIT=["https://api.bybit.com","https://api.bytick.com"];let hostIdx=0;
 let src="bybit", lastDetail="";
-const IV={bybit:{"15m":"15","4h":"240","1D":"D","1W":"W"},binance:{"15m":"15m","4h":"4h","1D":"1d","1W":"1w"}};
+const IV={bybit:{"15m":"15","4h":"240","1D":"D","1W":"W","1M":"M"},binance:{"15m":"15m","4h":"4h","1D":"1d","1W":"1w","1M":"1M"}};
 function detail(e){return e&&(e.message||e.msg||e.status)?String(e.message||e.msg||("HTTP "+e.status)):String(e)}
 async function bybitGet(path){
   let lastErr;
@@ -1487,8 +1614,8 @@ function setSlot(sym,slot,c,err){
 }
 async function pool(jobs,n){let i=0;const run=async()=>{while(i<jobs.length){const j=jobs[i++];await j()}};await Promise.all(Array.from({length:n},run))}
 let slowAt=0;
-const HTF={"15m":"4h","4h":"1D","1D":"1W"};
-function slowSlots(){const a=[];if(tf!=="1D")a.push(["day","1D"]);if(HTF[tf]!=="1D")a.push(["htf",HTF[tf]]);return a}
+const HTF={"15m":"4h","4h":"1D","1D":"1W","1W":"1M"};
+function slowSlots(){const a=[];if(!NODAY())a.push(["day","1D"]);if(HTF[tf]!=="1D")a.push(["htf",HTF[tf]]);return a}
 async function refreshAll(force){
   if(cat==="whale"){const r=await loadTickers();if(r===true)renderWhale();return}
   if(busy)return;busy=true;
@@ -2209,6 +2336,8 @@ listEl.addEventListener("click",e=>{
     if(a){const marks=[...a.sigs.map(s=>s.i),...(a.sigs.skipped||[]).map(s=>s.i),...(a.sigs.pending?[a.sigs.pending.i]:[]),...(a.sigs.armed?[a.sigs.armed.i0]:[]),...(a.sigs.missed||[]).map(m=>m.i0)];
       if(!marks.includes(v)){const near=marks.filter(m=>Math.abs(m-v)<=2).sort((p,q)=>Math.abs(p-v)-Math.abs(q-v))[0];if(near!=null)v=near}}
     selCandle[sy]=v;render();return}
+  const snb=e.target.closest("[data-scenn]");if(snb){cfg.scenN=+snb.dataset.scenn;store.set("bb.cfg",cfg);render();return}
+  const scb=e.target.closest("[data-scen]");if(scb){const sy=scb.dataset.sym,d=scb.dataset.scen;scenPick[sy]=scenPick[sy]===d?null:d;render();return}
   const fb=e.target.closest("[data-fib]");if(fb){cfg.fib=!cfg.fib;store.set("bb.cfg",cfg);render();return}
   const cs=e.target.closest("[data-csel]");if(cs){selCandle[cs.dataset.csel]=null;render();return}
   const zb=e.target.closest("[data-zoom]");if(zb){cfg.zoom=zb.dataset.zoom==="all"?"all":+zb.dataset.zoom;store.set("bb.cfg",cfg);render();return}
