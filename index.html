@@ -1474,7 +1474,7 @@ function candleInfo(a,sym){
       ${tf==="1W"?"":`<span class="k dn">손절가</span><span class="v dn">${fmt(lv.sl)}</span><span class="n">${pE(lv.sl)} · 설정 기준</span>`}
       ${(()=>{const rs=recStop(a.candles,si,long,sg.price,sg.pinv??sg.inv);return `<span class="k dn">추천 손절가</span><span class="v dn">${fmt(rs.sl)}</span><span class="n">${pE(rs.sl)} · ${esc(rs.why)} · <b>여기 닿으면 신호 종료(무효)</b>${tf==="1W"?"":" · "+rs.levTxt}</span>`})()}
       <span class="k upc">목표가 1</span><span class="v upc">${fmt(sg.tp1)}</span><span class="n">${pE(sg.tp1)} · 절반${sg.be!=null?` · <b>✓ 도달 (${fmtTime(a.candles[sg.be].t)})</b>`:""}</span>
-      <span class="k upc">목표가 2</span><span class="v upc">${fmt(sg.tgt)}</span><span class="n">${pE(sg.tgt)}${sg.end&&sg.end.reason==="tgt"?" · <b>✓ 도달</b>":""}</span>
+      <span class="k upc">목표가 2</span><span class="v upc">${fmt(sg.tgt)}</span><span class="n">${pE(sg.tgt)}${sg.end&&sg.end.reason==="tgt"?" · <b>✓ 도달</b>":""}</span></div>
       ${jFormHTML(a,sym,sg,si,long,lv)}
       <div class="ds">${sg.end?`결과 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`:`지금 가격 ${fmt(a.last)} · 신호 이후 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`} 실제 체결은 다음 캔들 시가 근처라 조금 다를 수 있어요.</div></div>`}
   else if(a.sigs.armed&&a.sigs.armed.i0===si){const am=a.sigs.armed;sig=`<div class="csig pend"><div class="cst"><span class="sg ghost ${am.type==="B"?"b":"s"}">${am.type} 대기</span><span>${SETUP_NM[am.setup]} · ${esc(am.why)}</span></div><div class="ds">캔들이 너무 크게 움직여서 종가 ${fmt(k.close)}에 바로 들어가지 않아요. <b>${fmt(am.limit)}</b>까지 되돌아오면 그 가격에 진입하고, 무효 가격은 ${fmt(am.inv)}이에요.</div></div>`}
