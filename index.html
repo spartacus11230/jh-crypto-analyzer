@@ -430,6 +430,13 @@ header{gap:4px}
 .ofs span b{font-family:var(--mono)}.ofs span.up b{color:var(--up)}.ofs span.down b{color:var(--down)}.ofs span i{font-style:normal;color:var(--muted);font-size:.68rem}
 .odds .ds{font-size:.72rem;color:var(--muted)}
 .ofs{display:grid;grid-template-columns:1fr 1fr;gap:6px}.ofs span{flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:6px}.ofs span i{flex-basis:100%}
+.jform{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:10px;margin-top:4px}
+.jform .jfh{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}.jform .jfh span{font-size:.75rem;color:var(--muted)}
+.jform label{display:grid;grid-template-columns:4.2em 1fr;align-items:center;gap:10px;font-size:.8rem;font-weight:600;color:var(--muted)}
+.jform input{border:1px solid var(--line);border-radius:10px;background:var(--soft);color:var(--ink);font:600 1rem var(--mono);padding:9px 11px;min-width:0;width:100%}
+.jform input:focus{outline:none;border-color:color-mix(in srgb,var(--accent) 60%,transparent)}
+.jchips{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 2px calc(4.2em + 10px)}.jchips .mini{font-size:.72rem}
+.jform .jbtns{display:flex;gap:8px;align-items:center}.btn.jopen{justify-self:start}
 </style>
 </head>
 <body>
@@ -525,7 +532,7 @@ const DEF_P={"15m":{sl:[1,2],r1:1.5,r2:2.5,trail:0},"4h":{sl:[1,3],r1:1.5,r2:3,t
 let optStore=store.get("bb.opt",{}),patStore=store.get("bb.pat",{});
 function params(sym){const o=optStore[sym+"|"+tf];return cfg.slMode!=="margin"&&o&&o.adopted?o.p:DEF_P[tf]}
 function pDesc(p){return `손절 ATR ${p.sl[0]}~${p.sl[1]}배 · 목표1 ${p.r1}R(절반) · 나머지 ${p.trail?`트레일링 ATR ${p.trail}배`:p.r2+"R"}`}let showJournal=false;const bt={},fut={};let delArm=null;
-const dirPick={},entryOv={},selCandle={};
+const dirPick={},entryOv={},selCandle={},jForm={};
 const MMR=0.005, FEE=0.00055;
 /* Futures plan: entry at the signal candle close (or current price), stop beyond the recent swing
    clamped to 1–3 ATR, targets at 1.5R and 3R, isolated-margin liquidation estimate. */
@@ -621,10 +628,7 @@ function planHTML(a,sym){
     ${dayLimitHit()?`<div class="warn">오늘 손실 한도에 도달했어요. 새 진입은 쉬는 걸 권해요.</div>`:""}
     <div class="rules"><b>운영 규칙</b><ol><li>목표가 1에서 <b>절반 익절</b></li><li>남은 절반은 손절가를 <b>진입가(본전)</b>로 올리기</li><li>${P.tp2!=null?"목표가 2":`트레일링 스톱(ATR ${P.trail}배)`}, 반대 신호(${L?"S":"B"}), 또는 신호 유효기간(${a.sigs.expN}캔들) 종료 시 정리</li></ol>
       <div class="ds">결과별 손익: 손절 −1R(약 −${fmt(P.riskAmt)} USDT) · 목표1 후 본전 +${(0.5*P.r1).toFixed(2)}R${P.tp2!=null?` · 목표2까지 +${(0.5*P.r1+0.5*P.r2).toFixed(2)}R`:" · 트레일링은 추세 길이만큼"}</div></div>
-    ${(()=>{const ov=entryOv[sym+"|"+P.dir],e=ov||P.entry,d=Math.abs(e-P.sl),ok=ov?(L?ov>P.sl:ov<P.sl):true,q=d>0?P.riskAmt/d:0;
-      return `<div class="entryin"><label for="ov-${sym}">실제 진입가<input id="ov-${sym}" data-entry="${sym}" data-edir="${P.dir}" type="number" inputmode="decimal" step="any" placeholder="${+P.entry.toPrecision(8)}" value="${ov?+ov.toPrecision(8):""}"></label>
-        <div class="ds">${ov?(ok?`이 가격으로 기록해요. 손절·목표가는 그대로 두고, 손실 한도 ${fmt(P.riskAmt)} USDT에 맞춰 수량을 <b>${qtyTxt(q)} ${sym}</b>로 다시 계산했어요. 손익비 ${(Math.abs(P.tp1-e)/d).toFixed(2)}${P.tp2!=null?" / "+(Math.abs(P.tp2-e)/d).toFixed(2):""}.`:`<b class="down">이 진입가는 손절가(${fmt(P.sl)})보다 불리한 쪽이라 기록할 수 없어요.</b>`):`비워두면 계획 진입가 ${fmt(P.entry)}로 기록돼요. 실제로 체결된 가격이 다르면 입력하세요.`}</div></div>
-      <button class="btn" data-log="${sym}" data-dir="${P.dir}" ${ov&&!ok?"disabled":""}>이 계획 일지에 기록</button>`})()}
+    <div class="nopat">매매일지 기록은 차트에서 <b>신호(B/S)를 눌러</b> 나오는 신호 카드의 "이 신호로 매매 기록"에서 해요.</div>
     <div class="slmode"><span>손절 기준</span><div class="seg sm" role="group" aria-label="손절 기준"><button data-slmode="margin" aria-pressed="${cfg.slMode==="margin"}">증거금 %</button><button data-slmode="chart" aria-pressed="${cfg.slMode!=="margin"}">차트 기준</button></div></div>
     ${cfg.slMode==="margin"?`<div class="cfg">
       <label for="cfg-lev">레버리지<input id="cfg-lev" data-cfg="lev" type="number" inputmode="decimal" min="1" max="125" value="${cfg.lev}"><span>배</span></label>
@@ -1441,6 +1445,22 @@ function planLines(P,x,y,n,mn,mx,PL,W,PR,FS=11){
   return L.filter(([v])=>v!=null&&v>=mn&&v<=mx).map(([v,col,t])=>`<line x1="${PL}" x2="${W-PR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${col}" stroke-width="1.1" stroke-dasharray="5 3"/><rect x="${W-PR+1}" y="${(y(v)-7).toFixed(1)}" width="${PR-2}" height="14" rx="3" fill="${col}"/><text x="${W-PR+4}" y="${(y(v)+4).toFixed(1)}" fill="var(--bg)" font-size="${FS-1.5}" font-weight="700" font-family="IBM Plex Mono,monospace">${fmt(v)}</text><text x="${PL+3}" y="${(y(v)-3).toFixed(1)}" fill="${col}" font-size="${FS-1}" font-weight="700" font-family="IBM Plex Sans KR,sans-serif">${t}</text>`).join("");
 }
 /* Info card for the tapped candle; a confirmed signal on it shows the locked-in entry, stop and targets. */
+/* Journal entry straight from a signal: entry / stop / take-profit, prefilled from the signal and editable. */
+function jFormHTML(a,sym,sg,si,long,lv){
+  const f=jForm[sym];
+  if(f&&f.saved===si)return `<div class="okline">일지에 기록했어요 · 위쪽 "매매 일지"에서 확인하고 결과를 마감할 수 있어요.</div>`;
+  if(!f||f.i!==si)return `<button class="btn jopen" data-jopen="${sym}" data-ji="${si}">이 신호로 매매 기록</button>`;
+  const rs=recStop(a.candles,si,long,sg.price,sg.pinv??sg.inv),ms=sg.price*(1-(long?1:-1)*cfg.maxLoss/Math.max(1,cfg.lev)/100);
+  const v=k=>f[k]!=null?+(+f[k]).toPrecision(8):"";
+  return `<div class="jform"><div class="jfh"><b>${long?"B 롱":"S 숏"} 신호 참고 · 매매 기록</b><span>${fmtTime(sg.t)} · ${SETUP_NM[sg.setup]||""}</span></div>
+    <label>진입가<input data-jform="entry" data-sym="${sym}" type="number" inputmode="decimal" step="any" value="${v("entry")}"></label>
+    <label>손절가<input data-jform="sl" data-sym="${sym}" type="number" inputmode="decimal" step="any" value="${v("sl")}"></label>
+    <div class="jchips"><button class="mini" data-jfill="sl" data-sym="${sym}" data-v="${rs.sl}">추천 손절가 ${fmt(rs.sl)}</button>${tf==="1W"?"":`<button class="mini" data-jfill="sl" data-sym="${sym}" data-v="${ms}">설정 손절가 ${fmt(ms)}</button>`}</div>
+    <label>익절가<input data-jform="tp" data-sym="${sym}" type="number" inputmode="decimal" step="any" value="${v("tp")}"></label>
+    <div class="jchips"><button class="mini" data-jfill="tp" data-sym="${sym}" data-v="${sg.tp1}">목표가 1 ${fmt(sg.tp1)}</button><button class="mini" data-jfill="tp" data-sym="${sym}" data-v="${sg.tgt}">목표가 2 ${fmt(sg.tgt)}</button></div>
+    ${f.err?`<div class="warn">${esc(f.err)}</div>`:""}
+    <div class="jbtns"><button class="btn" data-jsave="${sym}">일지에 저장</button><button class="mini ghost" data-jcancel="${sym}">취소</button></div></div>`;
+}
 function candleInfo(a,sym){
   const si=selCandle[sym];
   if(si==null||si>=a.candles.length)return `<div class="cinfo hint">캔들을 누르면 시간·가격과 그 캔들의 B/S 확정 진입가·손절·목표가가 여기 보여요.</div>`;
@@ -1453,8 +1473,9 @@ function candleInfo(a,sym){
       <div class="cgrid"><span class="k">진입 확정가</span><span class="v">${fmt(sg.price)}</span><span class="n">신호 캔들 종가</span>
       ${tf==="1W"?"":`<span class="k dn">손절가</span><span class="v dn">${fmt(lv.sl)}</span><span class="n">${pE(lv.sl)} · 설정 기준</span>`}
       ${(()=>{const rs=recStop(a.candles,si,long,sg.price,sg.pinv??sg.inv);return `<span class="k dn">추천 손절가</span><span class="v dn">${fmt(rs.sl)}</span><span class="n">${pE(rs.sl)} · ${esc(rs.why)} · <b>여기 닿으면 신호 종료(무효)</b>${tf==="1W"?"":" · "+rs.levTxt}</span>`})()}
-      <span class="k upc">목표가 1</span><span class="v upc">${fmt(lv.tp1)}</span><span class="n">${pE(lv.tp1)} · 절반</span>
-      ${lv.tp2!=null?`<span class="k upc">목표가 2</span><span class="v upc">${fmt(lv.tp2)}</span><span class="n">${pE(lv.tp2)}</span>`:`<span class="k upc">나머지</span><span class="v upc">트레일링</span><span class="n">ATR ${lv.trail}배</span>`}</div>
+      <span class="k upc">목표가 1</span><span class="v upc">${fmt(sg.tp1)}</span><span class="n">${pE(sg.tp1)} · 절반${sg.be!=null?` · <b>✓ 도달 (${fmtTime(a.candles[sg.be].t)})</b>`:""}</span>
+      <span class="k upc">목표가 2</span><span class="v upc">${fmt(sg.tgt)}</span><span class="n">${pE(sg.tgt)}${sg.end&&sg.end.reason==="tgt"?" · <b>✓ 도달</b>":""}</span>
+      ${jFormHTML(a,sym,sg,si,long,lv)}
       <div class="ds">${sg.end?`결과 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`:`지금 가격 ${fmt(a.last)} · 신호 이후 ${long?"롱":"숏"} 기준 <b class="${cls(nowG)}">${pctTxt(nowG)}</b>.`} 실제 체결은 다음 캔들 시가 근처라 조금 다를 수 있어요.</div></div>`}
   else if(a.sigs.armed&&a.sigs.armed.i0===si){const am=a.sigs.armed;sig=`<div class="csig pend"><div class="cst"><span class="sg ghost ${am.type==="B"?"b":"s"}">${am.type} 대기</span><span>${SETUP_NM[am.setup]} · ${esc(am.why)}</span></div><div class="ds">캔들이 너무 크게 움직여서 종가 ${fmt(k.close)}에 바로 들어가지 않아요. <b>${fmt(am.limit)}</b>까지 되돌아오면 그 가격에 진입하고, 무효 가격은 ${fmt(am.inv)}이에요.</div></div>`}
   else if((a.sigs.missed||[]).some(m=>m.i0===si)){const m=a.sigs.missed.find(m=>m.i0===si);sig=`<div class="csig pend"><div class="cst"><span class="sg ghost">${m.type} 놓침</span><span>${esc(m.why)}</span></div><div class="ds">되돌림 지정가 ${fmt(m.limit)}까지 돌아오지 않아서 진입하지 않고 취소된 신호예요.</div></div>`}
@@ -1489,7 +1510,7 @@ function getA(sym){
   return st.a;
 }
 function render(){
-  const ae=document.activeElement;if(ae&&ae.dataset&&(ae.dataset.cfg||ae.dataset.jf||ae.dataset.entry)){pendingRender=true;return}
+  const ae=document.activeElement;if(ae&&ae.dataset&&(ae.dataset.cfg||ae.dataset.jf||ae.dataset.entry||ae.dataset.jform)){pendingRender=true;return}
   renderJournal();
   listEl.innerHTML=coins.map(sym=>{
     const st=state[sym]||{};const a=getA(sym);const err=st.main&&st.main.err;
@@ -1889,6 +1910,7 @@ function editTrade(id,field,v){const j=journal.find(x=>x.id===id);if(!j||!isFini
 function autoJudge(j){
   const st=state[j.sym];if(!st||j.tf!==tf||!st.main||!st.main.c)return null;
   const c=st.main.c,from=c.findIndex(x=>x.t>j.t);if(from<0)return null;
+  if(j.single){const L=j.dir==="long";for(let k=from;k<c.length;k++){const x=c[k];if(L?x.low<=j.sl:x.high>=j.sl)return {kind:"손절",R:-1};if(L?x.high>=j.tp1:x.low<=j.tp1)return {kind:"익절",R:+jR1(j).toFixed(3)}}return null}
   const r=walkTrade(c,from,{long:j.dir==="long",entry:j.entry,sl:j.sl,tp1:j.tp1,tp2:j.tp2==null?null:j.tp2,d:Math.abs(j.entry-j.sl),r1:jR1(j),r2:jR2(j),trail:j.trail||0,atr:j.atr||Math.abs(j.entry-j.sl)});
   return r.open?(r.half?{kind:"목표1 도달 · 진행 중",R:null}:null):{kind:r.kind,R:r.R};
 }
@@ -1906,14 +1928,14 @@ function renderJournal(){
       ${j.status==="open"?`<div class="jedit">
         <label>실제 진입가<input data-jf="entry" data-jid="${j.id}" type="number" inputmode="decimal" step="any" value="${+j.entry.toPrecision(8)}"></label>
         <label>손절가<input data-jf="sl" data-jid="${j.id}" type="number" inputmode="decimal" step="any" value="${+j.sl.toPrecision(8)}"></label>
-        <label>목표가 1<input data-jf="tp1" data-jid="${j.id}" type="number" inputmode="decimal" step="any" value="${+j.tp1.toPrecision(8)}"></label>
-        ${j.tp2!=null?`<label>목표가 2<input data-jf="tp2" data-jid="${j.id}" type="number" inputmode="decimal" step="any" value="${+j.tp2.toPrecision(8)}"></label>`:`<label>나머지<span class="fake">트레일링 ATR ${j.trail}배</span></label>`}
+        <label>${j.single?"익절가":"목표가 1"}<input data-jf="tp1" data-jid="${j.id}" type="number" inputmode="decimal" step="any" value="${+j.tp1.toPrecision(8)}"></label>
+        ${j.single?"":j.tp2!=null?`<label>목표가 2<input data-jf="tp2" data-jid="${j.id}" type="number" inputmode="decimal" step="any" value="${+j.tp2.toPrecision(8)}"></label>`:`<label>나머지<span class="fake">트레일링 ATR ${j.trail}배</span></label>`}
       </div>
       <div class="jl muted">${j.plan&&Math.abs(j.plan-j.entry)/j.plan>1e-6?`계획가 ${fmt(j.plan)} → 실제 ${fmt(j.entry)} (${pctTxt((j.entry-j.plan)/j.plan*100)}) · `:""}수량 ${qtyTxt(j.qty)} ${j.sym} · 손익비 ${jR1(j).toFixed(2)}${j.tp2!=null?" / "+jR2(j).toFixed(2):""} · 손실 한도 ${fmt(j.risk)} USDT</div>`
-      :`<div class="jl">진입 ${fmt(j.entry)} · 손절 ${fmt(j.sl)} · 목표 ${fmt(j.tp1)}${j.tp2!=null?" / "+fmt(j.tp2):" / 트레일링"} · 손실 한도 ${fmt(j.risk)} USDT</div>`}
+      :`<div class="jl">진입 ${fmt(j.entry)} · 손절 ${fmt(j.sl)} · ${j.single?"익절":"목표"} ${fmt(j.tp1)}${j.single?"":j.tp2!=null?" / "+fmt(j.tp2):" / 트레일링"} · 손실 한도 ${fmt(j.risk)} USDT</div>`}
       <div class="jl muted">${esc(j.why||"")}${j.status==="closed"?` · 결과: ${j.kind}`:""}</div>
       ${j.status==="open"?`${aj?`<div class="jl auto">자동 판정: <b>${aj.kind}</b>${aj.R!=null?` (${fmtR(aj.R)}) <button class="mini" data-jclose="${j.id}" data-kind="${aj.kind}" data-r="${aj.R}">이 결과로 마감</button>`:""}</div>`:""}
-        <div class="jbtns"><button class="mini" data-jclose="${j.id}" data-kind="손절" data-r="-1">손절</button><button class="mini" data-jclose="${j.id}" data-kind="목표1 후 본전" data-r="${(0.5*jR1(j)).toFixed(3)}">목표1 후 본전</button>${j.tp2!=null?`<button class="mini" data-jclose="${j.id}" data-kind="목표2" data-r="${(0.5*jR1(j)+0.5*jR2(j)).toFixed(3)}">목표2</button>`:""}${uR!=null?`<button class="mini" data-jclose="${j.id}" data-kind="현재가 정리" data-r="${uR}">현재가로 정리</button>`:""}<button class="mini ghost" data-jdel="${j.id}">${delArm===j.id?"한 번 더 누르면 삭제":"삭제"}</button></div>`
+        <div class="jbtns"><button class="mini" data-jclose="${j.id}" data-kind="손절" data-r="-1">손절</button>${j.single?`<button class="mini" data-jclose="${j.id}" data-kind="본전" data-r="0">본전</button><button class="mini" data-jclose="${j.id}" data-kind="익절" data-r="${jR1(j).toFixed(3)}">익절</button>`:`<button class="mini" data-jclose="${j.id}" data-kind="목표1 후 본전" data-r="${(0.5*jR1(j)).toFixed(3)}">목표1 후 본전</button>`}${j.tp2!=null?`<button class="mini" data-jclose="${j.id}" data-kind="목표2" data-r="${(0.5*jR1(j)+0.5*jR2(j)).toFixed(3)}">목표2</button>`:""}${uR!=null?`<button class="mini" data-jclose="${j.id}" data-kind="현재가 정리" data-r="${uR}">현재가로 정리</button>`:""}<button class="mini ghost" data-jdel="${j.id}">${delArm===j.id?"한 번 더 누르면 삭제":"삭제"}</button></div>`
       :`<div class="jbtns"><button class="mini ghost" data-jdel="${j.id}">${delArm===j.id?"한 번 더 누르면 삭제":"삭제"}</button></div>`}
     </div>`}).join("");
   el.innerHTML=`<div class="jhead"><h2>매매 일지</h2><button class="mini ghost" id="journalClose">닫기</button></div>
@@ -2330,6 +2352,19 @@ $("#journal").addEventListener("click",e=>{
 listEl.addEventListener("click",e=>{
   const rm=e.target.closest("[data-rm]");
   if(rm){const s=rm.dataset.rm;coins=coins.filter(c=>c!==s);store.set("bb.coins",coins);delete state[s];open=null;render();return}
+  const jo=e.target.closest("[data-jopen]");if(jo){const sy=jo.dataset.jopen,si=+jo.dataset.ji,a=getA(sy),sg=a&&a.sigs.find(x=>x.i===si);if(!sg)return;const long=sg.type==="B";
+    jForm[sy]={i:si,entry:sg.price,sl:recStop(a.candles,si,long,sg.price,sg.pinv??sg.inv).sl,tp:sg.tp1};render();return}
+  const jfl=e.target.closest("[data-jfill]");if(jfl){const f=jForm[jfl.dataset.sym];if(f){f[jfl.dataset.jfill]=+jfl.dataset.v;f.err=null;render()}return}
+  const jc=e.target.closest("[data-jcancel]");if(jc){delete jForm[jc.dataset.jcancel];render();return}
+  const jsv=e.target.closest("[data-jsave]");if(jsv){const sy=jsv.dataset.jsave,f=jForm[sy],a=getA(sy);if(!f||!a)return;const sg=a.sigs.find(x=>x.i===f.i);if(!sg)return;
+    document.querySelectorAll(`[data-jform][data-sym="${sy}"]`).forEach(el=>{const v=parseFloat(el.value);if(isFinite(v)&&v>0)f[el.dataset.jform]=v});
+    const long=sg.type==="B",en=+f.entry,sl=+f.sl,tp=+f.tp;
+    if(!(en>0&&sl>0&&tp>0)){f.err="진입가, 손절가, 익절가를 모두 입력해 주세요.";render();return}
+    if(long?!(sl<en&&en<tp):!(tp<en&&en<sl)){f.err=long?"롱은 손절가 < 진입가 < 익절가여야 해요.":"숏은 익절가 < 진입가 < 손절가여야 해요.";render();return}
+    const risk=riskUSD(),d=Math.abs(en-sl),qty=risk/d;
+    journal.push({id:Date.now().toString(36),t:Date.now(),sym:sy,tf,dir:long?"long":"short",entry:en,sl,tp1:tp,tp2:null,single:true,lev:cfg.lev,qty,risk,fees:qty*en*FEE*2,atr:atrAt(a.candles,a.candles.length-1),
+      ref:{type:sg.type,t:sg.t,price:sg.price,setup:sg.setup,why:sg.why},why:`${sg.type} 신호 참고 · ${fmtTime(sg.t)} · ${SETUP_NM[sg.setup]||""} · ${sg.why}`,status:"open"});
+    saveJournal();jForm[sy]={saved:f.i};renderJournal();render();return}
   const lg=e.target.closest("[data-log]");if(lg){const sym=lg.dataset.log,a=getA(sym);if(!a)return;const P=tradePlan(a,lg.dataset.dir,sym);
     const ov=entryOv[sym+"|"+P.dir],en=ov||P.entry,dd=Math.abs(en-P.sl),qty=P.riskAmt/dd;
     journal.push({id:Date.now().toString(36),t:Date.now(),sym,tf,dir:P.dir,entry:en,plan:P.entry,sl:P.sl,tp1:P.tp1,tp2:P.tp2,r1:P.r1,r2:P.r2,trail:P.trail,atr:P.atr,lev:P.lev,qty,risk:P.riskAmt,fees:qty*en*FEE*2,why:(P.sig&&P.fresh?P.sig.why:"현재가 기준 진입"),status:"open"});
@@ -2354,10 +2389,11 @@ listEl.addEventListener("click",e=>{
 });
 document.addEventListener("change",e=>{const en=e.target.dataset&&e.target.dataset.entry;
   if(en){const v=parseFloat(e.target.value),k=en+"|"+e.target.dataset.edir;if(isFinite(v)&&v>0)entryOv[k]=v;else delete entryOv[k];e.target.blur();pendingRender=false;render();return}
+  const jfm=e.target.dataset&&e.target.dataset.jform;if(jfm){const f=jForm[e.target.dataset.sym];const v=parseFloat(e.target.value);if(f){f[jfm]=isFinite(v)&&v>0?v:null;f.err=null}e.target.blur();pendingRender=false;render();return}
   const jf=e.target.dataset&&e.target.dataset.jf;if(jf){pendingRender=false;editTrade(e.target.dataset.jid,jf,parseFloat(e.target.value));e.target.blur();render();return}
   const k=e.target.dataset&&e.target.dataset.cfg;if(!k)return;let v=parseFloat(e.target.value);
   const lim={lev:[1,125],seed:[1,1e9],risk:[0.1,100],dayLimit:[1,100],marginAmt:[1,1e9],maxLoss:[1,90]}[k];if(!isFinite(v))v=cfg[k];v=Math.min(lim[1],Math.max(lim[0],v));cfg[k]=v;store.set("bb.cfg",cfg);e.target.blur();pendingRender=false;render()});
-document.addEventListener("focusout",e=>{if(e.target.dataset&&(e.target.dataset.cfg||e.target.dataset.jf||e.target.dataset.entry)&&pendingRender)setTimeout(()=>{pendingRender=false;render()},0)});
+document.addEventListener("focusout",e=>{if(e.target.dataset&&(e.target.dataset.cfg||e.target.dataset.jf||e.target.dataset.entry||e.target.dataset.jform)&&pendingRender)setTimeout(()=>{pendingRender=false;render()},0)});
 $("#addForm").addEventListener("submit",e=>{
   e.preventDefault();const v=$("#addInput").value.trim().toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/USDT$/,"");
   if(!v)return;if(!coins.includes(v)){coins.unshift(v);store.set("bb.coins",coins)}$("#addInput").value="";open=v;render();refreshAll(true);
