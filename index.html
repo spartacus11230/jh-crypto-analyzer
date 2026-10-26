@@ -536,18 +536,23 @@ function tradePlan(a,dir,sym){
   const am=!sig&&a.sigs.armed&&a.sigs.armed.type===want?a.sigs.armed:null;
   const recent=!!sig&&L-1-sig.i<=3,away=sig?Math.abs(a.last-sig.price):0,atrNow=atrAt(c,L-1);
   const fresh=recent&&sig.be==null&&away<=0.5*atrNow;
-  const entry=am?am.limit:fresh?sig.price:a.last,p=params(sym),o=optStore[sym+"|"+tf];
+  /* track: a live signal in this direction exists → the plan becomes that signal's management view
+     (its entry, its TP1/TP2 as the engine tracks them, stop moved to entry once TP1 was hit) instead of a new plan at today's price */
+  const track=!!sig;
+  const entry=am?am.limit:track?sig.price:a.last,p=params(sym),o=optStore[sym+"|"+tf];
   const prog=sig?(long?a.last-sig.price:sig.price-a.last)/Math.max(1e-12,Math.abs(sig.price-sig.inv)):0,chase=!!sig&&!fresh&&prog>0.5;
-  const lv=levelsAt(c,fresh?sig.i:L-1,long,entry,p,sig?(sig.pinv??sig.inv):am?am.inv:null),{d,sl,tp1,clamp,atr,wild,tight}=lv,tp2=lv.tp2;
+  const lv=levelsAt(c,track?sig.i:L-1,long,entry,p,sig?(sig.pinv??sig.inv):am?am.inv:null),{clamp,atr,wild,tight}=lv;
+  const sl0=lv.sl,d=Math.abs(entry-sl0),tp1=track?sig.tp1:lv.tp1,tp2=track?sig.tgt:lv.tp2,beHit=track&&sig.be!=null,sl=beHit?sig.price:sl0;
+  const r1=track?+(Math.abs(tp1-entry)/d).toFixed(2):p.r1,r2=track?+(Math.abs(tp2-entry)/d).toFixed(2):p.r2;
   const lev=Math.max(1,cfg.lev);
   const liq=long?entry*(1-1/lev+MMR):entry*(1+1/lev-MMR);
   const dPct=d/entry,maxLev=Math.max(1,Math.floor(1/(dPct+MMR+0.003)));
-  const liqFirst=long?liq>=sl:liq<=sl,liqSig=recent?(long?sig.price*(1-1/lev+MMR):sig.price*(1+1/lev-MMR)):null,liqNow=liqSig!=null&&(long?a.last<=liqSig:a.last>=liqSig);
+  const liqFirst=long?liq>=sl0:liq<=sl0,liqSig=recent?(long?sig.price*(1-1/lev+MMR):sig.price*(1+1/lev-MMR)):null,liqNow=liqSig!=null&&(long?a.last<=liqSig:a.last>=liqSig);
   const adverse=sig?(long?sig.price-a.last:a.last-sig.price)/sig.price*100:0;
   const mm=cfg.slMode==="margin",riskAmt=riskUSD(),qty=mm?cfg.marginAmt*lev/entry:riskAmt/d,notional=qty*entry,margin=notional/lev,fees=notional*FEE*2;
   const swingHi=Math.max(...c.slice(-50).map(x=>x.high)),swingLo=Math.min(...c.slice(-50).map(x=>x.low));
   const wall=long?(swingHi>entry&&swingHi<tp1?swingHi:null):(swingLo<entry&&swingLo>tp1?swingLo:null);const tpEnd=tp2!=null?tp2:tp1;
-  return {p,opt:o&&o.adopted?o:null,r1:p.r1,r2:p.r2,trail:p.trail,atr,d,dir,long,entry,fresh,sig,sl,tp1,tp2,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,opp,prog,chase,am,rec:(()=>{const r=recStop(c,fresh?sig.i:L-1,long,entry,sig?(sig.pinv??sig.inv):am?am.inv:null);
+  return {p,opt:o&&o.adopted?o:null,r1,r2,trail:track?0:p.trail,atr,d,dir,long,entry,fresh,sig,sl,sl0,tp1,tp2,track,beHit,beT:beHit?c[sig.be].t:null,liq,lev,dPct,maxLev,liqFirst,riskAmt,qty,notional,margin,fees,clamp,wild,tight,wall,recent,adverse,liqNow,liqSig,opp,prog,chase,am,rec:(()=>{const r=recStop(c,track?sig.i:L-1,long,entry,sig?(sig.pinv??sig.inv):am?am.inv:null);
     return {...r,lossNow:r.pct*lev,liqBefore:r.pct/100>=1/lev-MMR,tp1:entry+(long?1:-1)*1.5*r.d,tp2:entry+(long?1:-1)*3*r.d}})(),moved:sig?(a.last-sig.price)/sig.price*100:0};
 }
 function pctTxt(v){return (v>=0?"+":"−")+Math.abs(v).toFixed(2)+"%"}
@@ -569,23 +574,24 @@ function planHTML(a,sym){
   const roe=v=>pctTxt(v*P.lev*(L?1:-1));
   const pE=v=>(v-P.entry)/P.entry*100;
   const le=a.sigs.lastEnded;
-  const entryNote=P.am?`지정가 · ${fmtTime(P.am.t0)} ${L?"B":"S"} 신호 캔들의 ${P.am.lvl!=null?"돌파 가격/몸통 중간":"몸통 중간"}`:P.fresh?`${fmtTime(P.sig.t)} ${L?"B":"S"} 신호 캔들 종가 · 지금 가격도 근처라 이 가격대 진입 가능`:(P.sig?`현재가 기준 · ${L?"B":"S"} 신호가 ${fmt(P.sig.price)}(${fmtTime(P.sig.t)})에서 이미 ${pctTxt(P.moved)} 움직였어요`:"현재가 기준");
+  const entryNote=P.am?`지정가 · ${fmtTime(P.am.t0)} ${L?"B":"S"} 신호 캔들의 ${P.am.lvl!=null?"돌파 가격/몸통 중간":"몸통 중간"}`:P.fresh?`${fmtTime(P.sig.t)} ${L?"B":"S"} 신호 캔들 종가 · 지금 가격도 근처라 이 가격대 진입 가능`:(P.sig?`${fmtTime(P.sig.t)} ${L?"B":"S"} 신호 진입가 (진행 중인 신호) · 지금 가격 ${fmt(a.last)}, 신호 이후 ${pctTxt(P.moved)}`:"현재가 기준");
   return `<div class="plan">
     <div class="planhead"><h3 class="h3">선물 진입 계획</h3>
       <div class="seg sm" role="group" aria-label="포지션 방향"><button data-dir="long" data-sym="${sym}" aria-pressed="${L}">롱</button><button data-dir="short" data-sym="${sym}" aria-pressed="${!L}">숏</button></div></div>
     ${P.am?`<div class="warn soft"><b>지정가 대기 계획</b> · ${fmtTime(P.am.t0)} 캔들이 너무 크게 움직여서 종가에 바로 들어가지 않고, <b>${fmt(P.am.limit)}</b>까지 되돌아오면 진입해요. ${Math.max(1,P.am.expI-(a.candles.length-1))}캔들 안에 안 오면 취소돼요. (${esc(P.am.why)})</div>`:""}
     ${!P.sig&&!P.am?`<div class="warn soft">${P.opp?`지금 살아있는 신호는 <b>${P.opp.type==="B"?"B 롱":"S 숏"}</b>이에요. 반대 방향 계획이에요.`:`지금은 살아있는 신호가 없어요 (관망)${le?` · 직전 ${le.type} 신호는 ${END_SHORT[le.end.reason]}`:""}. 신호가 뜨기 전 미리 보는 계획이에요.`}</div>`:""}
-    ${P.sig&&P.sig.be!=null?`<div class="warn">이 ${L?"B":"S"} 신호는 이미 목표가 1(${fmt(P.sig.tp1)})에 닿아서 본전 보호 중이에요. 이미 들어간 사람은 손절을 진입가로 올리는 구간이고, <b>지금 새로 들어가기엔 늦었어요.</b></div>`
+    ${P.sig&&P.sig.be!=null?`<div class="warn">이 ${L?"B":"S"} 신호는 이미 목표가 1(${fmt(P.sig.tp1)})에 닿아서 본전 보호 중이에요. 이미 들어간 사람은 손절을 진입가로 올리는 구간이고, <b>지금 새로 들어가기엔 늦었어요.</b> 아래 표는 이 신호의 진행 상황이에요.</div>`
       :P.chase?`<div class="warn">신호가(${fmt(P.sig.price)})에서 이미 손절폭의 ${P.prog.toFixed(1)}배만큼 ${L?"올랐":"내렸"}어요. 지금 따라 들어가면 무효 가격까지 멀어서 손익비가 나빠요. ${L?"눌림":"반등"}을 기다리세요.</div>`:""}
     <div class="pbasis ${P.opt&&cfg.slMode!=="margin"?"on":""}">${cfg.slMode==="margin"?`<b>증거금 % 손절</b> · ${cfg.lev}배, 증거금의 ${cfg.maxLoss}%에서 손절`:P.opt?`<b>최적화 값 적용 중</b> · 검증 구간 ${P.opt.test.n}회, 승률 ${P.opt.test.wr.toFixed(0)}%, 평균 ${fmtR(P.opt.test.avgR)}`:`<b>${tfShort(tf)} 기본값</b> · 백테스트를 돌리면 이 코인에 맞게 최적화해요`}<br><span>${cfg.slMode==="margin"?`목표1 ${P.r1}R(절반) · 나머지 ${P.trail?"트레일링":P.r2+"R"}`:pDesc(P.p)}</span></div>
     <div class="lv">
       <div class="lvr"><span class="k">진입가</span><span class="v">${fmt(P.entry)}</span><span class="n">${entryNote}</span></div>
       ${P.am?`<div class="lvr inv"><span class="k">무효 가격</span><span class="v">${fmt(P.am.inv)}</span><span class="n">체결 전에 종가가 여기를 넘으면 대기 취소</span></div>`:""}
       ${P.sig?`<div class="lvr inv"><span class="k">무효 가격</span><span class="v">${fmt(P.sig.inv)}</span><span class="n">신호가 뜰 때의 추천 손절가${P.sig.stopWhy?` (${esc(P.sig.stopWhy)})`:""} · 여기 닿으면 신호 끝${cfg.slMode==="margin"?(Math.abs(P.entry-P.sl)<Math.abs(P.entry-P.sig.inv)*0.85?" · <b>증거금 손절가가 이보다 가까워서, 신호가 살아 있어도 흔들림에 먼저 손절될 수 있어요</b>":Math.abs(P.entry-P.sl)>Math.abs(P.entry-P.sig.inv)*1.15?" · <b>증거금 손절가보다 이 가격이 먼저 와요. 여기서 먼저 정리하는 걸 권해요</b>":""):""}</span></div>`:""}
-      <div class="lvr sl"><span class="k">손절가</span><span class="v">${fmt(P.sl)}</span><span class="n">가격 ${pctTxt(pE(P.sl))} · 수익률 ${roe(pE(P.sl))}${P.clamp?" · "+P.clamp:""}</span></div>
+      ${P.beHit?`<div class="lvr sl"><span class="k">손절가</span><span class="v">${fmt(P.sl)}</span><span class="n"><b>목표가 1 도달 → 본전(진입가)으로 이동</b> · 여기로 돌아오면 남은 절반은 본전 정리하고 신호 종료 · 처음 손절가 ${fmt(P.sl0)}</span></div>`
+        :`<div class="lvr sl"><span class="k">손절가</span><span class="v">${fmt(P.sl)}</span><span class="n">가격 ${pctTxt(pE(P.sl))} · 수익률 ${roe(pE(P.sl))}${P.clamp?" · "+P.clamp:""}</span></div>`}
       <div class="lvr sl rec"><span class="k">추천 손절가</span><span class="v">${fmt(P.rec.sl)}</span><span class="n">가격 ${pctTxt(pE(P.rec.sl))} · ${esc(P.rec.why)} · 레버리지와 무관한 차트 기준 · <b>${P.rec.levTxt}</b>${P.rec.lev<P.lev?` (지금 ${P.lev}배는 높아요)`:""}</span></div>
-      <div class="lvr tp"><span class="k">목표가 1</span><span class="v">${fmt(P.tp1)}</span><span class="n">가격 ${pctTxt(pE(P.tp1))} · 수익률 ${roe(pE(P.tp1))} · 손익비 ${P.r1} · 절반 익절</span></div>
-      ${P.tp2!=null?`<div class="lvr tp"><span class="k">목표가 2</span><span class="v">${fmt(P.tp2)}</span><span class="n">가격 ${pctTxt(pE(P.tp2))} · 수익률 ${roe(pE(P.tp2))} · 손익비 ${P.r2} · 나머지 정리</span></div>`
+      <div class="lvr tp"><span class="k">목표가 1</span><span class="v">${fmt(P.tp1)}</span><span class="n">${P.beHit?`<b>✓ 도달 (${fmtTime(P.beT)})</b> · 절반 익절 완료 · `:""}가격 ${pctTxt(pE(P.tp1))} · 수익률 ${roe(pE(P.tp1))} · 손익비 ${P.r1} · 절반 익절</span></div>
+      ${P.tp2!=null?`<div class="lvr tp"><span class="k">목표가 2</span><span class="v">${fmt(P.tp2)}</span><span class="n">${P.beHit?"<b>지금 목표</b> · ":""}가격 ${pctTxt(pE(P.tp2))} · 수익률 ${roe(pE(P.tp2))} · 손익비 ${P.r2} · 나머지 정리${P.track?" · 도달 전에 본전으로 돌아오거나 반대 신호가 뜨면 신호 종료 → 관망":""}</span></div>`
         :`<div class="lvr tp"><span class="k">나머지</span><span class="v">트레일링</span><span class="n">목표가 1 이후 최고${L?"":"(최저)"}가에서 ATR ${P.trail}배(약 ${fmt(P.trail*P.atr)}) 떨어지면 정리. 추세가 길게 갈 때 수익을 더 끌고 가요.</span></div>`}
       <div class="lvr lq"><span class="k">청산가</span><span class="v">${fmt(P.liq)}</span><span class="n">${P.lev}배 격리 기준 약 ${pctTxt(pE(P.liq))}</span></div>
     </div>
